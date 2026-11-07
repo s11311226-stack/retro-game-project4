@@ -3,7 +3,11 @@ import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '../config/playerConfig';
 import { getAreaDefinition } from '../data/campusAreas';
 import { DEMO_CHAPTER_TITLE } from '../data/storyScript';
 import { globalAudioSynth } from '../systems/AudioSynthManager';
+import { globalRelationshipSystem } from '../systems/CharacterRelationshipSystem';
+import { globalEvidenceSystem } from '../systems/EvidenceSystem';
 import { globalExplorationState } from '../systems/ExplorationStateManager';
+import { globalGameState } from '../systems/GlobalGameState';
+import { globalQuestSystem } from '../systems/QuestSystem';
 import { globalSaveManager } from '../systems/SaveManager';
 import { globalStoryState } from '../systems/StoryStateManager';
 
@@ -259,6 +263,10 @@ export class MainMenuScene extends Phaser.Scene {
   private startNewGame(): void {
     globalExplorationState.resetSession('school_gate', 'initial_spawn');
     globalStoryState.resetStoryState();
+    globalGameState.reset('system_init', 'New game started from main menu');
+    globalRelationshipSystem.reset();
+    globalEvidenceSystem.reset();
+    globalQuestSystem.reset();
     this.scene.launch('UIScene');
     this.scene.start('SchoolGateScene', { spawnId: 'initial_spawn' });
   }

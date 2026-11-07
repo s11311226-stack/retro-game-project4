@@ -348,10 +348,12 @@ export interface IMultiEndingExtensionHooks {
 }
 
 // ============================================================================
-// Phase 4 — 版本化存檔結構、音訊設定與品質整理型別定義
+// Phase 4 & Phase 6A — 版本化存檔結構、全域狀態、角色關係、證據與任務型別定義
 // ============================================================================
 
-export const SAVE_SCHEMA_VERSION = 2;
+export const LEGACY_SAVE_SCHEMA_VERSION_V1 = 1;
+export const LEGACY_SAVE_SCHEMA_VERSION_V2 = 2;
+export const SAVE_SCHEMA_VERSION = 3;
 
 export interface AudioSettingsData {
   bgmVolume: number; // 0.0 ~ 1.0
@@ -360,7 +362,279 @@ export interface AudioSettingsData {
 }
 
 /**
- * 版本化存檔資料結構 (不含任何機密、密碼或權杖)
+ * 正式版 8 大核心全域變數 (對應 GAMEPLAY_SYSTEMS.md)
+ */
+export interface GlobalGameVariables {
+  /** 證據完整度 (0 ~ 100) */
+  evidenceCompletion: number;
+  /** 累積重傷次數 (0 ~ 99) */
+  injuryCount: number;
+  /** 學生好感度平均值 (0 ~ 100) */
+  studentAffinity: number;
+  /** 學生信任度平均值 (0 ~ 100) */
+  studentTrust: number;
+  /** 財閥警戒度 (0 ~ 100) */
+  corporateAlert: number;
+  /** 實驗侵蝕度 / 認知污染值 (0 ~ 100) */
+  experimentCorruption: number;
+  /** 外界曝光度 (0 ~ 100) */
+  publicExposure: number;
+  /** 學業學分與校規評價 (0 ~ 100) */
+  academicCredits: number;
+}
+
+export type GlobalVariableKey = keyof GlobalGameVariables;
+
+export type GlobalStateAuthSource =
+  | 'system_init'
+  | 'relationship_system'
+  | 'evidence_system'
+  | 'quest_system'
+  | 'combat_system'
+  | 'academic_system'
+  | 'story_director'
+  | 'save_restore'
+  | 'dev_inspector';
+
+export interface GlobalStateChangeNotification {
+  source: GlobalStateAuthSource;
+  changedKeys: GlobalVariableKey[];
+  previous: GlobalGameVariables;
+  current: GlobalGameVariables;
+  reason?: string;
+}
+
+export type FormalEndingId =
+  | 'ending_a_truth_revealed'
+  | 'ending_b_blood_campus'
+  | 'ending_c_mass_uprising'
+  | 'ending_d_nameless_one'
+  | 'ending_e_observer'
+  | 'demo_single_ending_observed';
+
+/**
+ * 為未來 Phase 8 EndingEvaluator 預留的擴充評估介面
+ */
+export interface IEndingEvaluatorExtension {
+  evaluatePreviewEnding(vars: GlobalGameVariables, flags: string[]): FormalEndingId;
+}
+
+// ============================================================================
+// Phase 6A (B) — CharacterRelationshipSystem 15 位角色型別定義
+// ============================================================================
+
+export type CharacterId =
+  | 'su_yuqing'
+  | 'su_yulan'
+  | 'lin_xiaoyue'
+  | 'zhou_yuan'
+  | 'chen_pinyan'
+  | 'zhao_jiahao'
+  | 'shirakawa_hayate'
+  | 'ye_sihan'
+  | 'lu_zixuan'
+  | 'shen_zhiyuan'
+  | 'xu_wenqian'
+  | 'chen_mengzhe'
+  | 'shirakawa_shizuo'
+  | 'shirakawa_kyoka'
+  | 'lin_jingyi';
+
+export type CharacterFaction =
+  | 'protagonist'
+  | 'student_ally'
+  | 'internal_reformer'
+  | 'conservative_coverup'
+  | 'radical_research';
+
+export type RelationshipTier = 1 | 2 | 3;
+
+export interface CharacterAwakeningCondition {
+  minAffinity: number;
+  minTrust: number;
+  requiredEvidenceIds?: string[];
+  requiredEventId?: string;
+}
+
+export interface CharacterDefinition {
+  id: CharacterId;
+  number: string;
+  name: string;
+  roleTitle: string;
+  faction: CharacterFaction;
+  primaryAreas: string[];
+  background: string;
+  appearance128: string;
+  personality: string;
+  personalSecret: string;
+  storyRole: string;
+  relationToProtagonist: string;
+  sideQuestId: string;
+  sideQuestTitle: string;
+  initialAffinity: number;
+  initialTrust: number;
+  countsTowardStudentAggregate: boolean;
+  awakeningCondition: CharacterAwakeningCondition;
+  endingImpactSummary: string;
+}
+
+export interface CharacterRelationshipState {
+  characterId: CharacterId;
+  affinity: number;
+  trust: number;
+  tier: RelationshipTier;
+  isAwakened: boolean;
+}
+
+export interface RelationshipEventImpact {
+  eventId: string;
+  characterId: CharacterId;
+  affinityDelta?: number;
+  trustDelta?: number;
+  oneTimeOnly?: boolean;
+  forceAwaken?: boolean;
+  corporateAlertDelta?: number;
+  reason?: string;
+}
+
+export interface CrossCharacterConflictResolution {
+  conflictId: string;
+  choiceId: 'harmonize_with_evidence' | 'reckless_force' | 'premature_confront';
+  oneTimeOnly?: boolean;
+}
+
+// ============================================================================
+// Phase 6A (C) — EvidenceSystem 證據與錯誤線索系統型別定義
+// ============================================================================
+
+export type EvidenceCategory =
+  | 'historical_document'
+  | 'physical_item'
+  | 'testimony'
+  | 'audio_tape'
+  | 'red_herring';
+
+export type EvidenceImportance = 'low' | 'medium' | 'high' | 'critical';
+
+export interface EvidenceDefinition {
+  id: string;
+  name: string;
+  category: EvidenceCategory;
+  sourceObjectId: string;
+  discoveredAreaId: string;
+  description: string;
+  importance: EvidenceImportance;
+  /** 收集此證據可貢獻的基礎權重分數 */
+  baseWeight: number;
+  /** 分析此證據可獲得的額外權重分數 */
+  analysisBonusWeight: number;
+  /** 是否屬於錯誤線索 (Red Herring) */
+  isRedHerring: boolean;
+  /** 若為錯誤線索，可用來識破它的反證 ID */
+  counterEvidenceId?: string;
+  /** 分析後或識破錯誤線索後的結論摘要 */
+  analysisConclusion: string;
+}
+
+export interface CollectedEvidenceRecord {
+  id: string;
+  collectedAtIso: string;
+  isAnalyzed: boolean;
+  /** 若為錯誤線索，是否已被識破 */
+  isDebunked: boolean;
+}
+
+// ============================================================================
+// Phase 6A (D) — QuestSystem 主線、支線與角色專屬任務型別定義
+// ============================================================================
+
+export type QuestCategory = 'main' | 'side' | 'character';
+
+export type QuestStatus =
+  | 'locked'
+  | 'available'
+  | 'active'
+  | 'completed'
+  | 'failed';
+
+export interface QuestPrerequisite {
+  requiredFlags?: string[];
+  requiredCompletedQuestIds?: string[];
+  requiredEvidenceIds?: string[];
+  requiredCharacterTrust?: {
+    characterId: CharacterId;
+    minTrust: number;
+  };
+  requiredCharacterAffinity?: {
+    characterId: CharacterId;
+    minAffinity: number;
+  };
+  minAcademicCredits?: number;
+}
+
+export interface QuestReward {
+  globalStateDeltas?: Partial<GlobalGameVariables>;
+  characterImpacts?: Array<{
+    characterId: CharacterId;
+    affinityDelta?: number;
+    trustDelta?: number;
+  }>;
+  setStoryFlags?: StoryFlagId[];
+  grantItemId?: string;
+}
+
+export interface QuestDefinition {
+  id: string;
+  title: string;
+  category: QuestCategory;
+  chapter: 1 | 2 | 3 | 4;
+  relatedCharacterId?: CharacterId;
+  summary: string;
+  objectives: string[];
+  prerequisites: QuestPrerequisite;
+  completionCondition: {
+    requiredEvidenceIds?: string[];
+    requiredFlags?: string[];
+    requiredCompletedEventIds?: string[];
+  };
+  failureCondition?: {
+    forbiddenFlags?: string[];
+    maxCorporateAlert?: number;
+  };
+  rewards: QuestReward;
+}
+
+export interface QuestRuntimeState {
+  questId: string;
+  status: QuestStatus;
+  startedAtIso?: string;
+  completedAtIso?: string;
+  failedAtIso?: string;
+  rewardClaimed: boolean;
+}
+
+// ============================================================================
+// Phase 6A (E) — SaveManager 擴充資料結構
+// ============================================================================
+
+export interface Phase6ASaveState {
+  globalVariables: GlobalGameVariables;
+  relationships: {
+    states: Record<CharacterId, CharacterRelationshipState>;
+    completedEventIds: string[];
+  };
+  evidence: {
+    records: CollectedEvidenceRecord[];
+    triggeredEventIds: string[];
+  };
+  quests: {
+    states: Record<string, QuestRuntimeState>;
+    executedOneTimeEventIds: string[];
+  };
+}
+
+/**
+ * 版本化存檔資料結構 (同時支援 Demo V2 與 Phase 6A V3 完整擴充結構，不含任何機密、密碼或權杖)
  */
 export interface GameSavePayloadV2 {
   schemaVersion: number;
@@ -385,14 +659,26 @@ export interface GameSavePayloadV2 {
     metrics: FutureNarrativeMetrics;
   };
   audio?: AudioSettingsData;
+  phase6a?: Phase6ASaveState;
 }
+
+export type GameSavePayloadV3 = GameSavePayloadV2 & {
+  phase6a: Phase6ASaveState;
+};
 
 export interface SaveLoadResult {
   success: boolean;
   migratedFromLegacy: boolean;
-  reason?: 'no_save' | 'corrupted_json' | 'invalid_schema' | 'unsupported_version' | 'storage_error';
+  migratedFromVersion?: number;
+  reason?:
+    | 'no_save'
+    | 'corrupted_json'
+    | 'invalid_schema'
+    | 'unsupported_version'
+    | 'storage_error';
   data?: GameSavePayloadV2;
 }
+
 
 
 

@@ -6,6 +6,8 @@ import {
 } from '../data/campusAreas';
 import { DEMO_STORY_EVENTS, INITIAL_OBJECTIVE_TEXT } from '../data/storyScript';
 import {
+  LEGACY_SAVE_SCHEMA_VERSION_V1,
+  LEGACY_SAVE_SCHEMA_VERSION_V2,
   SAVE_SCHEMA_VERSION,
   type AreaId,
   type AudioSettingsData,
@@ -13,15 +15,30 @@ import {
   type FacingDirection,
   type GameSavePayloadV2,
   type InventoryItemDef,
+  type Phase6ASaveState,
   type SaveLoadResult,
   type StoryEventId,
   type StoryFlagId,
 } from '../types';
+import {
+  CharacterRelationshipSystem,
+  globalRelationshipSystem,
+} from './CharacterRelationshipSystem';
+import { EvidenceSystem, globalEvidenceSystem } from './EvidenceSystem';
 import type { ExplorationStateManager } from './ExplorationStateManager';
+import { GlobalGameState, globalGameState } from './GlobalGameState';
+import { QuestSystem, globalQuestSystem } from './QuestSystem';
 import type { StoryStateManager } from './StoryStateManager';
 
 export const SAVE_STORAGE_KEY = 'unnamed_campus_save_v2';
 export const AUDIO_SETTINGS_STORAGE_KEY = 'unnamed_campus_audio_settings_v1';
+
+export interface Phase6AManagersBundle {
+  globalState?: GlobalGameState;
+  relationships?: CharacterRelationshipSystem;
+  evidence?: EvidenceSystem;
+  quests?: QuestSystem;
+}
 
 const VALID_AREA_IDS = new Set<AreaId>([
   'school_gate',
@@ -83,8 +100,8 @@ class MemoryStorageFallback implements StorageBackend {
  *
  * 負責：
  * 1. 儲存玩家位置 (區域、出生點、座標、朝向)、已取得物品、已讀線索、已解鎖門與劇情旗標。
- * 2. 使用明確的 `schemaVersion: 2` 版本化結構。
- * 3. 驗證存檔損毀 (非合法 JSON)、缺少必要欄位、型別錯誤，並支援從舊版 (V1) 結構自動平滑升級遷移至 V2。
+ * 2. Phase 6A 擴充：完整儲存與還原 GlobalGameState、CharacterRelationshipSystem、EvidenceSystem、QuestSystem。
+ * 3. 使用明確的 `schemaVersion: 3` 版本化結構，並相容既有 Demo V2 (`schemaVersion: 2`) 與 V1 (`schemaVersion: 1`) 存檔自動平滑升級遷移。
  * 4. 安全檢查：禁止寫入或保留任何疑似密碼、Token 或 API Key 的機密欄位。
  * 5. 載入存檔時自動校正玩家 X/Y 座標至合法區域邊界與地面高度，避免壞檔座標造成卡牆或懸空。
  */
@@ -117,13 +134,14 @@ export class SaveManager {
   }
 
   /**
-   * 從目前遊戲狀態建立並寫入 V2 版本化存檔
+   * 從目前遊戲狀態建立並寫入 V3 版本化存檔（向下相容既有 Demo 呼叫介面）
    */
   public saveCurrentGame(
     exploration: ExplorationStateManager,
     story: StoryStateManager,
     playerState: { x: number; y: number; facing: FacingDirection },
-    audioSettings?: AudioSettingsData
+    audioSettings?: AudioSettingsData,
+    phase6aManagers?: Phase6AManagersBundle
   ): GameSavePayloadV2 {
     const areaId = exploration.getCurrentAreaId();
     const area = getAreaDefinition(areaId);
@@ -131,6 +149,11 @@ export class SaveManager {
       area.bounds.minX + 18,
       Math.min(area.bounds.maxX - 18, Math.round(playerState.x))
     );
+
+    const gState = phase6aManagers?.globalState ?? globalGameState;
+    const relSys = phase6aManagers?.relationships ?? globalRelationshipSystem;
+    const evSys = phase6aManagers?.evidence ?? globalEvidenceSystem;
+    const qSys = phase6aManagers?.quests ?? globalQuestSystem;
 
     const payload: GameSavePayloadV2 = {
       schemaVersion: SAVE_SCHEMA_VERSION,
@@ -161,6 +184,12 @@ export class SaveManager {
             muted: Boolean(audioSettings.muted),
           }
         : undefined,
+      phase6a: {
+        globalVariables: gState.toSaveData(),
+        relationships: relSys.toSaveData(),
+        evidence: evSys.serialize(),
+        quests: qSys.serialize(),
+      },
     };
 
     // 執行機密欄位安全掃描，確保絕無密碼或權杖被寫入存檔
@@ -176,7 +205,7 @@ export class SaveManager {
   }
 
   /**
-   * 讀取並驗證存檔資料，處理損毀 JSON、缺漏欄位與 V1 -> V2 舊版資料遷移
+   * 讀取並驗證存檔資料，處理損毀 JSON、缺漏欄位，以及 V1 / V2 -> V3 舊版資料遷移
    */
   public loadAndValidateSave(): SaveLoadResult {
     let raw: string | null = null;
@@ -219,9 +248,14 @@ export class SaveManager {
 
     const obj = parsed as Record<string, unknown>;
 
-    // 檢查是否為舊版 V1 存檔結構 (schemaVersion === 1 或舊版扁平結構)
-    if (obj.schemaVersion === 1) {
-      return this.migrateV1ToV2(obj);
+    // 檢查是否為舊版 V1 存檔結構 (schemaVersion === 1)
+    if (obj.schemaVersion === LEGACY_SAVE_SCHEMA_VERSION_V1) {
+      return this.migrateV1ToCurrent(obj);
+    }
+
+    // 檢查是否為 Demo V2 存檔結構 (schemaVersion === 2)，平滑升級至 V3
+    if (obj.schemaVersion === LEGACY_SAVE_SCHEMA_VERSION_V2) {
+      return this.validatePayloadObject(obj, true, LEGACY_SAVE_SCHEMA_VERSION_V2);
     }
 
     if (typeof obj.schemaVersion !== 'number') {
@@ -240,16 +274,17 @@ export class SaveManager {
       };
     }
 
-    return this.validateV2Object(obj, false);
+    return this.validatePayloadObject(obj, false);
   }
 
   /**
-   * 將驗證通過的存檔套用至探索與劇情狀態管理器，並回傳玩家恢復座標
+   * 將驗證通過的存檔套用至探索、劇情與 Phase 6A 四大核心系統，並回傳玩家恢復座標
    */
   public applySaveToManagers(
     saveData: GameSavePayloadV2,
     exploration: ExplorationStateManager,
-    story: StoryStateManager
+    story: StoryStateManager,
+    phase6aManagers?: Phase6AManagersBundle
   ): {
     areaId: AreaId;
     spawnId: string;
@@ -292,6 +327,45 @@ export class SaveManager {
       metrics: saveData.story.metrics,
     });
 
+    // 同步還原 Phase 6A 核心系統
+    const gState = phase6aManagers?.globalState ?? globalGameState;
+    const relSys = phase6aManagers?.relationships ?? globalRelationshipSystem;
+    const evSys = phase6aManagers?.evidence ?? globalEvidenceSystem;
+    const qSys = phase6aManagers?.quests ?? globalQuestSystem;
+
+    const legacyEvidenceIds = [
+      ...saveData.exploration.clueIds,
+      ...saveData.exploration.inventoryItemIds,
+    ];
+
+    if (saveData.phase6a) {
+      gState.restoreFromSaveData(saveData.phase6a.globalVariables);
+      relSys.restoreFromSaveData(saveData.phase6a.relationships);
+      evSys.restoreFromSave(saveData.phase6a.evidence, legacyEvidenceIds);
+      qSys.restoreFromSave(saveData.phase6a.quests, saveData.story.flags);
+      // 若存檔中有自訂的全域變數（如 injuryCount / corporateAlert / publicExposure 等），確保還原後不被覆蓋
+      if (saveData.phase6a.globalVariables) {
+        gState.restoreFromSaveData({
+          ...saveData.phase6a.globalVariables,
+          evidenceCompletion: evSys.calculateEvidenceCompletion(),
+        });
+      }
+      qSys.evaluateAndSyncQuests(
+        saveData.story.flags,
+        saveData.story.completedEventIds
+      );
+    } else {
+      // 由舊版 V1 / V2 遷移之存檔：自動根據已收集線索、物品與劇情旗標重建 Phase 6A 狀態
+      gState.reset('save_restore', 'Migrate from legacy save');
+      relSys.reset();
+      evSys.restoreFromSave(undefined, legacyEvidenceIds);
+      qSys.reset();
+      qSys.evaluateAndSyncQuests(
+        saveData.story.flags,
+        saveData.story.completedEventIds
+      );
+    }
+
     return {
       areaId: saveData.player.areaId,
       spawnId: saveData.player.spawnId,
@@ -301,8 +375,7 @@ export class SaveManager {
     };
   }
 
-  private migrateV1ToV2(v1Obj: Record<string, unknown>): SaveLoadResult {
-    // 支援舊版 V1 結構欄位轉換
+  private migrateV1ToCurrent(v1Obj: Record<string, unknown>): SaveLoadResult {
     const areaIdRaw =
       (v1Obj.areaId as string) ??
       ((v1Obj.player as Record<string, unknown> | undefined)?.areaId as string);
@@ -340,7 +413,7 @@ export class SaveManager {
       ? v1Obj.collectedObjectIds
       : [];
 
-    const constructedV2: Record<string, unknown> = {
+    const constructed: Record<string, unknown> = {
       schemaVersion: SAVE_SCHEMA_VERSION,
       savedAtIso:
         typeof v1Obj.savedAtIso === 'string'
@@ -371,12 +444,17 @@ export class SaveManager {
       },
     };
 
-    return this.validateV2Object(constructedV2, true);
+    return this.validatePayloadObject(
+      constructed,
+      true,
+      LEGACY_SAVE_SCHEMA_VERSION_V1
+    );
   }
 
-  private validateV2Object(
+  private validatePayloadObject(
     obj: Record<string, unknown>,
-    migratedFromLegacy: boolean
+    migratedFromLegacy: boolean,
+    migratedFromVersion?: number
   ): SaveLoadResult {
     const player = obj.player as Record<string, unknown> | undefined;
     const exploration = obj.exploration as Record<string, unknown> | undefined;
@@ -393,6 +471,7 @@ export class SaveManager {
       return {
         success: false,
         migratedFromLegacy,
+        migratedFromVersion,
         reason: 'invalid_schema',
       };
     }
@@ -402,6 +481,7 @@ export class SaveManager {
       return {
         success: false,
         migratedFromLegacy,
+        migratedFromVersion,
         reason: 'invalid_schema',
       };
     }
@@ -410,6 +490,7 @@ export class SaveManager {
       return {
         success: false,
         migratedFromLegacy,
+        migratedFromVersion,
         reason: 'invalid_schema',
       };
     }
@@ -423,6 +504,7 @@ export class SaveManager {
       return {
         success: false,
         migratedFromLegacy,
+        migratedFromVersion,
         reason: 'invalid_schema',
       };
     }
@@ -454,12 +536,28 @@ export class SaveManager {
       ? exploration.unlockedPortalIds
       : [];
 
+    const validItemIds = exploration.inventoryItemIds.filter(
+      (id): id is string => typeof id === 'string' && Boolean(ITEMS_CATALOG[id])
+    );
+    const validClueIds = exploration.clueIds.filter(
+      (id): id is string => typeof id === 'string'
+    );
+
+    const savedAtIso =
+      typeof obj.savedAtIso === 'string'
+        ? obj.savedAtIso
+        : new Date().toISOString();
+
+    const sanitizedPhase6A = this.sanitizePhase6ASection(
+      obj.phase6a as Partial<Phase6ASaveState> | undefined,
+      validClueIds,
+      validItemIds,
+      savedAtIso
+    );
+
     const sanitized: GameSavePayloadV2 = {
       schemaVersion: SAVE_SCHEMA_VERSION,
-      savedAtIso:
-        typeof obj.savedAtIso === 'string'
-          ? obj.savedAtIso
-          : new Date().toISOString(),
+      savedAtIso,
       player: {
         areaId,
         spawnId,
@@ -471,12 +569,8 @@ export class SaveManager {
         collectedObjectIds: exploration.collectedObjectIds.filter(
           (id): id is string => typeof id === 'string'
         ),
-        inventoryItemIds: exploration.inventoryItemIds.filter(
-          (id): id is string => typeof id === 'string' && Boolean(ITEMS_CATALOG[id])
-        ),
-        clueIds: exploration.clueIds.filter(
-          (id): id is string => typeof id === 'string'
-        ),
+        inventoryItemIds: validItemIds,
+        clueIds: validClueIds,
         unlockedPortalIds: rawUnlocked.filter(
           (id): id is string => typeof id === 'string'
         ),
@@ -505,12 +599,62 @@ export class SaveManager {
               : 0,
         },
       },
+      phase6a: sanitizedPhase6A,
     };
 
     return {
       success: true,
       migratedFromLegacy,
+      migratedFromVersion,
       data: sanitized,
+    };
+  }
+
+  private sanitizePhase6ASection(
+    rawPhase6a: Partial<Phase6ASaveState> | undefined,
+    legacyClueIds: string[],
+    legacyItemIds: string[],
+    fallbackIso: string
+  ): Phase6ASaveState {
+    const tempGlobal = new GlobalGameState();
+    const tempRel = new CharacterRelationshipSystem(tempGlobal);
+    const tempEv = new EvidenceSystem(tempGlobal);
+    const tempQuest = new QuestSystem(tempGlobal, tempRel, tempEv);
+
+    if (rawPhase6a && typeof rawPhase6a === 'object') {
+      tempGlobal.restoreFromSaveData(rawPhase6a.globalVariables);
+      tempRel.restoreFromSaveData(rawPhase6a.relationships);
+      tempEv.restoreFromSave(rawPhase6a.evidence, [
+        ...legacyClueIds,
+        ...legacyItemIds,
+      ]);
+      tempQuest.restoreFromSave(rawPhase6a.quests);
+      if (rawPhase6a.globalVariables) {
+        tempGlobal.restoreFromSaveData({
+          ...rawPhase6a.globalVariables,
+          evidenceCompletion: tempEv.calculateEvidenceCompletion(),
+        });
+      }
+    } else {
+      tempEv.restoreFromSave(
+        {
+          records: [...legacyClueIds, ...legacyItemIds].map((id) => ({
+            id,
+            collectedAtIso: fallbackIso,
+            isAnalyzed: false,
+            isDebunked: false,
+          })),
+          triggeredEventIds: [],
+        },
+        []
+      );
+    }
+
+    return {
+      globalVariables: tempGlobal.toSaveData(),
+      relationships: tempRel.toSaveData(),
+      evidence: tempEv.serialize(),
+      quests: tempQuest.serialize(),
     };
   }
 

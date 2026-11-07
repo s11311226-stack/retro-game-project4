@@ -51,4 +51,8 @@ export const GameEvents = {
   UI_REQUEST_MANUAL_SAVE: 'ui:request-manual-save',
   UI_REQUEST_LOAD_SAVE: 'ui:request-load-save',
   UI_REQUEST_RETURN_MAIN_MENU: 'ui:request-return-main-menu',
+  GLOBAL_STATE_CHANGED: 'phase6a:global-state-changed',
+  RELATIONSHIP_UPDATED: 'phase6a:relationship-updated',
+  EVIDENCE_UPDATED: 'phase6a:evidence-updated',
+  QUEST_UPDATED: 'phase6a:quest-updated',
 } as const;

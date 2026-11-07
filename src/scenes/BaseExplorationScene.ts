@@ -6,8 +6,12 @@ import { InteractablePlaceholderRenderer } from '../entities/InteractablePlaceho
 import { PlaceholderCharacterRenderer } from '../entities/PlaceholderCharacterRenderer';
 import { PlayerController } from '../entities/PlayerController';
 import { globalAudioSynth } from '../systems/AudioSynthManager';
+import { globalRelationshipSystem } from '../systems/CharacterRelationshipSystem';
+import { globalEvidenceSystem } from '../systems/EvidenceSystem';
 import { globalExplorationState } from '../systems/ExplorationStateManager';
+import { globalGameState } from '../systems/GlobalGameState';
 import { InputManager } from '../systems/InputManager';
+import { globalQuestSystem } from '../systems/QuestSystem';
 import { globalSaveManager } from '../systems/SaveManager';
 import {
   type ActiveStoryDialogueState,
@@ -517,6 +521,10 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     this.inputManager.resetAllInputs();
     globalExplorationState.resetSession('school_gate', 'initial_spawn');
     globalStoryState.resetStoryState();
+    globalGameState.reset('system_init', 'Restart demo session');
+    globalRelationshipSystem.reset();
+    globalEvidenceSystem.reset();
+    globalQuestSystem.reset();
     this.scene.start('SchoolGateScene', { spawnId: 'initial_spawn' });
   }
 
@@ -585,6 +593,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     }
 
     if (result.acquiredItem) {
+      globalEvidenceSystem.collectEvidence(result.acquiredItem.id);
       globalEventBus.emit(
         GameEvents.INVENTORY_UPDATED,
         globalExplorationState.getInventoryItems()
@@ -592,9 +601,17 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     }
 
     if (result.newlyAddedClue) {
+      globalEvidenceSystem.collectEvidence(result.newlyAddedClue.id);
       globalEventBus.emit(
         GameEvents.CLUES_UPDATED,
         globalExplorationState.getClues()
+      );
+    }
+
+    if (result.success) {
+      globalQuestSystem.evaluateAndSyncQuests(
+        globalStoryState.getFlags(),
+        globalStoryState.getCompletedEventIds()
       );
     }
 

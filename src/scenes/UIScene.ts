@@ -2,6 +2,10 @@ import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '../config/playerConfig';
 import { GameEvents, globalEventBus } from '../core/EventBus';
 import { globalAudioSynth } from '../systems/AudioSynthManager';
+import { globalRelationshipSystem } from '../systems/CharacterRelationshipSystem';
+import { globalEvidenceSystem } from '../systems/EvidenceSystem';
+import { globalGameState } from '../systems/GlobalGameState';
+import { globalQuestSystem } from '../systems/QuestSystem';
 import {
   type ActiveStoryDialogueState,
   globalStoryState,
@@ -57,8 +61,10 @@ export class UIScene extends Phaser.Scene {
   private docClueBadgeText!: Phaser.GameObjects.Text;
 
   private inventoryModal!: Phaser.GameObjects.Container;
+  private inventoryHeaderText!: Phaser.GameObjects.Text;
   private inventoryListText!: Phaser.GameObjects.Text;
   private cluesListText!: Phaser.GameObjects.Text;
+  private inventoryViewMode: 'classic' | 'phase6a' = 'classic';
 
   private endingModal!: Phaser.GameObjects.Container;
   private endingSummaryText!: Phaser.GameObjects.Text;
@@ -552,8 +558,8 @@ export class UIScene extends Phaser.Scene {
       .rectangle(
         LOGICAL_WIDTH / 2,
         LOGICAL_HEIGHT / 2,
-        520,
-        240,
+        540,
+        252,
         0x090d16,
         0.96
       )
@@ -564,51 +570,130 @@ export class UIScene extends Phaser.Scene {
       globalEventBus.emit(GameEvents.UI_REQUEST_CLOSE_MODAL);
     });
 
-    const header = this.add.text(
-      LOGICAL_WIDTH / 2 - 242,
-      LOGICAL_HEIGHT / 2 - 106,
+    this.inventoryHeaderText = this.add.text(
+      LOGICAL_WIDTH / 2 - 256,
+      LOGICAL_HEIGHT / 2 - 114,
       '🎒 隨身背包與調查線索紀錄 (INVENTORY & CLUES)',
       {
         fontFamily: 'monospace',
-        fontSize: '13px',
+        fontSize: '12px',
         color: '#e9d5ff',
       }
     );
 
+    const toggleTabBtn = this.add
+      .text(
+        LOGICAL_WIDTH / 2 + 256,
+        LOGICAL_HEIGHT / 2 - 114,
+        '[切換：正式版系統狀態面板]',
+        {
+          fontFamily: 'monospace',
+          fontSize: '10px',
+          color: '#fef08a',
+          backgroundColor: '#3b0764',
+          padding: { x: 6, y: 2 },
+        }
+      )
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true });
+
+    toggleTabBtn.on(
+      'pointerdown',
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        globalAudioSynth.playUiClick();
+        this.inventoryViewMode =
+          this.inventoryViewMode === 'classic' ? 'phase6a' : 'classic';
+        toggleTabBtn.setText(
+          this.inventoryViewMode === 'classic'
+            ? '[切換：正式版系統狀態面板]'
+            : '[切換：隨身背包與線索]'
+        );
+        this.refreshInventoryContent();
+      }
+    );
+
+    const analyzeBtn = this.add
+      .text(
+        LOGICAL_WIDTH / 2 - 256,
+        LOGICAL_HEIGHT / 2 + 114,
+        '[🔬 深度分析已收集證據]',
+        {
+          fontFamily: 'monospace',
+          fontSize: '10px',
+          color: '#a7f3d0',
+          backgroundColor: '#064e3b',
+          padding: { x: 6, y: 2 },
+        }
+      )
+      .setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true });
+
+    analyzeBtn.on(
+      'pointerdown',
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData
+      ) => {
+        event.stopPropagation();
+        globalAudioSynth.playItemPickup();
+        let analyzedCount = 0;
+        for (const rec of globalEvidenceSystem.getAllCollectedRecords()) {
+          if (!rec.isAnalyzed) {
+            const res = globalEvidenceSystem.analyzeEvidence(rec.id);
+            if (res.newlyAnalyzed) analyzedCount++;
+          }
+        }
+        this.showSaveToast(
+          analyzedCount > 0
+            ? `🔬 已深度分析 ${analyzedCount} 項證據！證據完整度：${globalGameState.getValue('evidenceCompletion')}%`
+            : `🔬 目前已收集的一般證據皆已完成分析 (${globalGameState.getValue('evidenceCompletion')}%)`
+        );
+        this.refreshInventoryContent();
+      }
+    );
+
     this.inventoryListText = this.add.text(
-      LOGICAL_WIDTH / 2 - 242,
-      LOGICAL_HEIGHT / 2 - 78,
+      LOGICAL_WIDTH / 2 - 256,
+      LOGICAL_HEIGHT / 2 - 88,
       '',
       {
         fontFamily: 'monospace',
-        fontSize: '10px',
+        fontSize: '9px',
         color: '#f8fafc',
-        wordWrap: { width: 230 },
-        lineSpacing: 4,
+        wordWrap: { width: 246 },
+        lineSpacing: 3,
       }
     );
 
     this.cluesListText = this.add.text(
       LOGICAL_WIDTH / 2 + 6,
-      LOGICAL_HEIGHT / 2 - 78,
+      LOGICAL_HEIGHT / 2 - 88,
       '',
       {
         fontFamily: 'monospace',
-        fontSize: '10px',
+        fontSize: '9px',
         color: '#bae6fd',
-        wordWrap: { width: 236 },
-        lineSpacing: 4,
+        wordWrap: { width: 248 },
+        lineSpacing: 3,
       }
     );
 
     const footer = this.add
       .text(
-        LOGICAL_WIDTH / 2 + 242,
-        LOGICAL_HEIGHT / 2 + 106,
-        '按 [I] / [Tab] / [Esc] 或點擊關閉背包',
+        LOGICAL_WIDTH / 2 + 256,
+        LOGICAL_HEIGHT / 2 + 114,
+        '按 [I] / [Tab] / [Esc] 或點擊背景關閉',
         {
           fontFamily: 'monospace',
-          fontSize: '10px',
+          fontSize: '9px',
           color: '#94a3b8',
         }
       )
@@ -617,7 +702,9 @@ export class UIScene extends Phaser.Scene {
     this.inventoryModal = this.add
       .container(0, 0, [
         panelBg,
-        header,
+        this.inventoryHeaderText,
+        toggleTabBtn,
+        analyzeBtn,
         this.inventoryListText,
         this.cluesListText,
         footer,
@@ -1026,8 +1113,9 @@ export class UIScene extends Phaser.Scene {
   }
 
   private updateStatusDisplay(snap: PlayerStateSnapshot): void {
-    const posStr = `Pos:(${Math.round(snap.x)}, ${Math.round(snap.y)}) State:${snap.state.toUpperCase()} Facing:${snap.facing.toUpperCase()}`;
-    const bagStr = `背包:${this.inventoryItems.length} 線索:${this.cluesList.length} 證據完整度:${globalStoryState.getMetrics().evidenceCompleteness}%`;
+    const posStr = `Pos:(${Math.round(snap.x)}, ${Math.round(snap.y)}) State:${snap.state.toUpperCase()}`;
+    const gSnap = globalGameState.getSnapshot();
+    const bagStr = `背包:${this.inventoryItems.length} 線索:${this.cluesList.length} 證據:${gSnap.evidenceCompletion}% 信任:${gSnap.studentTrust} 學分:${gSnap.academicCredits}`;
     this.statusText.setText(`${posStr} | ${bagStr}`);
   }
 
@@ -1138,6 +1226,69 @@ export class UIScene extends Phaser.Scene {
 
   private refreshInventoryContent(): void {
     if (!this.inventoryListText || !this.cluesListText) return;
+
+    if (this.inventoryViewMode === 'phase6a') {
+      this.inventoryHeaderText.setText(
+        '📊 正式版核心系統面板 (GlobalState / 15角色 / 證據 / 任務)'
+      );
+      const vars = globalGameState.getSnapshot();
+      const previewEnding = globalGameState.evaluatePreviewEnding(
+        vars,
+        globalStoryState.getFlags()
+      );
+      const activeQuests = globalQuestSystem.getQuestsByStatus('active');
+      const completedQuests = globalQuestSystem.getQuestsByStatus('completed');
+
+      const leftLines = [
+        '【8 大核心全域變數 (GlobalGameState)】',
+        `・證據完整度: ${vars.evidenceCompletion}% | 累積重傷: ${vars.injuryCount}`,
+        `・學生好感度: ${vars.studentAffinity} | 學生信任度: ${vars.studentTrust}`,
+        `・財閥警戒度: ${vars.corporateAlert} | 實驗侵蝕度: ${vars.experimentCorruption}`,
+        `・外界曝光度: ${vars.publicExposure} | 學業學分: ${vars.academicCredits}`,
+        `・結局預測: ${previewEnding}`,
+        '',
+        `【任務系統 (進行中:${activeQuests.length} / 已完成:${completedQuests.length})】`,
+        ...activeQuests
+          .slice(0, 2)
+          .map((q) => `▶ [進行中] ${q.definition.title}`),
+        ...completedQuests
+          .slice(0, 2)
+          .map((q) => `✓ [已完成] ${q.definition.title}`),
+      ];
+      this.inventoryListText.setText(leftLines.join('\n'));
+
+      const collectedEvs = globalEvidenceSystem.getAllCollectedRecords();
+      const keyChars = [
+        'su_yulan',
+        'lin_xiaoyue',
+        'zhou_yuan',
+        'chen_pinyan',
+        'zhao_jiahao',
+        'shirakawa_hayate',
+      ] as const;
+
+      const rightLines = [
+        `【證據系統 (已收集:${collectedEvs.length}/17)】`,
+        ...collectedEvs.slice(0, 4).map((rec) => {
+          const def = globalEvidenceSystem.getDefinition(rec.id);
+          const tag = rec.isAnalyzed ? '[已分析]' : '[未分析]';
+          return `・${tag} ${def?.name ?? rec.id}`;
+        }),
+        '',
+        '【核心角色關係 (15位角色節選)】',
+        ...keyChars.map((cid) => {
+          const def = globalRelationshipSystem.getCharacterDefinition(cid);
+          const st = globalRelationshipSystem.getCharacterState(cid);
+          return `・${def.name}: 好感${st.affinity}/信任${st.trust} (T${st.tier}${st.isAwakened ? '★' : ''})`;
+        }),
+      ];
+      this.cluesListText.setText(rightLines.join('\n'));
+      return;
+    }
+
+    this.inventoryHeaderText.setText(
+      '🎒 隨身背包與調查線索紀錄 (INVENTORY & CLUES)'
+    );
 
     if (this.inventoryItems.length === 0) {
       this.inventoryListText.setText('【背包物品 (0)】\n（目前尚未持有任何物品）');
