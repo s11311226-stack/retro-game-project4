@@ -2,6 +2,15 @@ import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from './playerConfig';
 import { BootScene } from '../scenes/BootScene';
 import { BulletinAreaScene } from '../scenes/BulletinAreaScene';
+import {
+  AcademicOfficeScene,
+  DormitoryScene,
+  ForbiddenArchiveScene,
+  InfirmaryScene,
+  OldLibraryScene,
+  RooftopScene,
+  TeachersOfficeScene,
+} from '../scenes/CampusAreaScenes';
 import { ClassroomScene } from '../scenes/ClassroomScene';
 import { CorridorScene } from '../scenes/CorridorScene';
 import { GameScene } from '../scenes/GameScene';
@@ -36,6 +45,13 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     BulletinAreaScene,
     CorridorScene,
     ClassroomScene,
+    AcademicOfficeScene,
+    TeachersOfficeScene,
+    DormitoryScene,
+    OldLibraryScene,
+    ForbiddenArchiveScene,
+    RooftopScene,
+    InfirmaryScene,
     GameScene,
     UIScene,
   ],

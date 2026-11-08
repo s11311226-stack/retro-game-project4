@@ -286,6 +286,201 @@ export const QUESTS_CATALOG: Record<string, QuestDefinition> = {
     },
   },
 
+  quest_char_zhao_jiahao_baton: {
+    id: 'quest_char_zhao_jiahao_baton',
+    title: '遺忘的接力棒',
+    category: 'character',
+    chapter: 2,
+    relatedCharacterId: 'zhao_jiahao',
+    summary:
+      '在學生宿舍儲物櫃找回刻有趙家豪童年玩伴名字的田徑接力棒，喚醒他被認知過濾屏蔽的記憶。',
+    objectives: [
+      '於學生宿舍調查儲物櫃取得《刻有失蹤玩伴名字的田徑接力棒》',
+      '向走廊或宿舍的趙家豪出示接力棒',
+    ],
+    prerequisites: {},
+    completionCondition: {
+      requiredEvidenceIds: ['ev_zhao_relay_baton'],
+    },
+    rewards: {
+      characterImpacts: [
+        {
+          characterId: 'zhao_jiahao',
+          affinityDelta: 40,
+          trustDelta: 55,
+        },
+      ],
+    },
+  },
+
+  quest_char_hayate_crest: {
+    id: 'quest_char_hayate_crest',
+    title: '染血的家徽',
+    category: 'character',
+    chapter: 2,
+    relatedCharacterId: 'shirakawa_hayate',
+    summary:
+      '在頂樓或教師辦公室與白川颯對質，出示教務處黑皮書或 1979 年地契，促使他下定決心背叛家族。',
+    objectives: [
+      '於教務處取得《1954～1999 空白學籍註銷黑皮書》',
+    ],
+    prerequisites: {},
+    completionCondition: {
+      requiredEvidenceIds: ['ev_dean_black_ledger'],
+    },
+    rewards: {
+      globalStateDeltas: {
+        corporateAlert: -15,
+      },
+      characterImpacts: [
+        {
+          characterId: 'shirakawa_hayate',
+          affinityDelta: 50,
+          trustDelta: 70,
+        },
+      ],
+    },
+  },
+
+  quest_char_ye_sihan_prescription: {
+    id: 'quest_char_ye_sihan_prescription',
+    title: '布簾後的處方箋',
+    category: 'character',
+    chapter: 2,
+    relatedCharacterId: 'ye_sihan',
+    summary:
+      '在保健室調查上鎖的藥品櫃，找出陳孟哲投餵鎮靜劑與移交 B1 檢體的簽收單，解除葉思涵的恐懼。',
+    objectives: [
+      '於保健室取得《特殊檢體移交 B1 簽收單》與甜味鎮靜劑化驗單',
+    ],
+    prerequisites: {},
+    completionCondition: {
+      requiredEvidenceIds: ['ev_b1_transfer_manifest'],
+    },
+    rewards: {
+      characterImpacts: [
+        {
+          characterId: 'ye_sihan',
+          affinityDelta: 45,
+          trustDelta: 60,
+        },
+      ],
+    },
+  },
+
+  quest_char_lu_zixuan_counterwave: {
+    id: 'quest_char_lu_zixuan_counterwave',
+    title: '18.9Hz 的逆相波',
+    category: 'character',
+    chapter: 2,
+    relatedCharacterId: 'lu_zixuan',
+    summary:
+      '登上頂樓鐘塔取得 18.9Hz 第四聲鐘響調變紀錄，協助物理社社長陸子軒校準逆相抗頻發射器。',
+    objectives: [
+      '於頂樓鐘塔取得《頂樓鐘塔 18.9Hz 第四聲鐘響調變波形紀錄》',
+    ],
+    prerequisites: {},
+    completionCondition: {
+      requiredEvidenceIds: ['ev_bell_tower_189hz_log'],
+    },
+    rewards: {
+      globalStateDeltas: {
+        experimentCorruption: -15,
+      },
+      characterImpacts: [
+        {
+          characterId: 'lu_zixuan',
+          affinityDelta: 45,
+          trustDelta: 60,
+        },
+      ],
+    },
+  },
+
+  quest_char_xu_wenqian_history_notes: {
+    id: 'quest_char_xu_wenqian_history_notes',
+    title: '被撕掉的歷史講義',
+    category: 'character',
+    chapter: 2,
+    relatedCharacterId: 'xu_wenqian',
+    summary:
+      '在教師辦公室找出許文謙老師暗中保存的未塗改原始出缺席點名簿，獲得導師的學分保護與信任。',
+    objectives: [
+      '於教師辦公室取得《未塗改前的一月原始出缺席點名簿》',
+    ],
+    prerequisites: {},
+    completionCondition: {
+      requiredEvidenceIds: ['ev_original_attendance_roster'],
+    },
+    rewards: {
+      globalStateDeltas: {
+        academicCredits: 10,
+      },
+      characterImpacts: [
+        {
+          characterId: 'xu_wenqian',
+          affinityDelta: 35,
+          trustDelta: 50,
+        },
+      ],
+    },
+  },
+
+  quest_char_lin_jingyi_redemption: {
+    id: 'quest_char_lin_jingyi_redemption',
+    title: '守書人的贖罪',
+    category: 'character',
+    chapter: 2,
+    relatedCharacterId: 'lin_jingyi',
+    summary:
+      '進入舊圖書館深處的禁書室，研讀《1968 年 18.9Hz 次聲波共鳴實驗原始報告》與《蘇語嵐加密錄音日誌》。',
+    objectives: [
+      '於禁書室取得《1968 年 18.9Hz 次聲波共鳴實驗原始報告》',
+      '於禁書室取得《蘇語嵐加密錄音日誌 #1～#3》',
+    ],
+    prerequisites: {},
+    completionCondition: {
+      requiredEvidenceIds: [
+        'ev_1968_infrasound_report',
+        'ev_yulan_recorder_tape',
+      ],
+    },
+    rewards: {
+      globalStateDeltas: {
+        publicExposure: 15,
+      },
+      characterImpacts: [
+        {
+          characterId: 'lin_jingyi',
+          affinityDelta: 40,
+          trustDelta: 60,
+        },
+      ],
+    },
+  },
+
+  quest_char_kyoka_observer_zero: {
+    id: 'quest_char_kyoka_observer_zero',
+    title: '第零號觀察者',
+    category: 'character',
+    chapter: 3,
+    relatedCharacterId: 'shirakawa_kyoka',
+    summary:
+      '在禁書室找出白川鏡花少年時期的受試病歷，揭露她曾是 1986 年初代第 29 號席位唯一倖存者的祕密。',
+    objectives: [
+      '於禁書室取得《1986 年第零號受試者：白川鏡花病歷》',
+    ],
+    prerequisites: {},
+    completionCondition: {
+      requiredEvidenceIds: ['ev_kyoka_patient_zero_file'],
+    },
+    rewards: {
+      globalStateDeltas: {
+        experimentCorruption: 10,
+      },
+    },
+  },
+
   // ==========================================================================
   // 校園調查支線任務 (Side Quests)
   // ==========================================================================

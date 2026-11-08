@@ -236,6 +236,137 @@ export const EVIDENCE_CATALOG: Record<string, EvidenceDefinition> = {
   },
 
   // ==========================================================================
+  // Phase 6B — 七大新增校園場景專屬證據 (教務處/教師辦公室/宿舍/舊圖書館/禁書室/頂樓/保健室)
+  // ==========================================================================
+  ev_dean_black_ledger: {
+    id: 'ev_dean_black_ledger',
+    name: '《1954～1999 空白學籍註銷黑皮書》與封口費帳冊',
+    category: 'historical_document',
+    sourceObjectId: 'obj_dean_safe_box',
+    discoveredAreaId: 'academic_office',
+    description:
+      '教務主任沈知遠雙重密碼保險箱內的黑皮名冊，詳細記載歷屆「第 29 號席位」失蹤學生被偽造為自願退學的行政註銷紀錄。',
+    importance: 'critical',
+    baseWeight: 9,
+    analysisBonusWeight: 5,
+    isRedHerring: false,
+    analysisConclusion:
+      '證實教務處長期配合白川財閥抹除失蹤學生的社會學籍，並記載沈知遠經手的封口費金流。',
+  },
+
+  ev_original_attendance_roster: {
+    id: 'ev_original_attendance_roster',
+    name: '《未塗改前的一月原始出缺席點名簿》',
+    category: 'historical_document',
+    sourceObjectId: 'obj_attendance_archive_shelf',
+    discoveredAreaId: 'teachers_office',
+    description:
+      '許文謙老師暗中保留在教師辦公室檔案櫃底層的原始名冊，第 29 號欄位清楚記載蘇語嵐與林曉月的真實出缺席紀錄。',
+    importance: 'high',
+    baseWeight: 7,
+    analysisBonusWeight: 4,
+    isRedHerring: false,
+    analysisConclusion:
+      '與教室講台上的塗改版名冊形成鐵證對比，足以徹底喚醒班長周予安被認知過濾屏蔽的記憶。',
+  },
+
+  ev_yulan_recorder_tape: {
+    id: 'ev_yulan_recorder_tape',
+    name: '《蘇語嵐加密錄音日誌 #1～#3》與雙燕音軌',
+    category: 'audio_tape',
+    sourceObjectId: 'obj_yulan_recorder_tape',
+    discoveredAreaId: 'forbidden_archive',
+    description:
+      '雙胞胎姊姊蘇語嵐失蹤前藏於宿舍音樂盒與禁書室的微型錄音帶，揭露 B1～B3「回聲搖籃計畫」與保健室鎮靜劑陷阱。',
+    importance: 'critical',
+    baseWeight: 10,
+    analysisBonusWeight: 5,
+    isRedHerring: false,
+    analysisConclusion:
+      '確認蘇語嵐仍活著並被囚禁於地下 B3 中央培養槽，同時提供解除認知過濾的關鍵音頻參數。',
+  },
+
+  ev_zhao_relay_baton: {
+    id: 'ev_zhao_relay_baton',
+    name: '刻有失蹤玩伴名字的田徑接力棒',
+    category: 'physical_item',
+    sourceObjectId: 'obj_zhao_locker',
+    discoveredAreaId: 'dormitory',
+    description:
+      '在學生宿舍儲物櫃深處找回的鋁合金接力棒，末端刻著田徑隊主將趙家豪兩年前「轉學失蹤」的摯友名字。',
+    importance: 'medium',
+    baseWeight: 5,
+    analysisBonusWeight: 3,
+    isRedHerring: false,
+    analysisConclusion:
+      '實物觸感能協助趙家豪衝破認知過濾的遺忘屏障，使他成為最堅定的前線反抗戰力。',
+  },
+
+  ev_1968_infrasound_report: {
+    id: 'ev_1968_infrasound_report',
+    name: '《1968 年 18.9Hz 次聲波共鳴實驗原始報告》',
+    category: 'historical_document',
+    sourceObjectId: 'doc_1968_infrasound_report',
+    discoveredAreaId: 'forbidden_archive',
+    description:
+      '禁書室石桌上的泛黃研究報告，記載 18.9Hz 次聲波配合閃爍光源可誘發人類大腦海馬迴產生選擇性認知盲區。',
+    importance: 'high',
+    baseWeight: 8,
+    analysisBonusWeight: 4,
+    isRedHerring: false,
+    analysisConclusion:
+      '完整闡明「認知過濾機制」的科學原理，為陸子軒研發逆相抗頻裝置提供理論基礎。',
+  },
+
+  ev_kyoka_patient_zero_file: {
+    id: 'ev_kyoka_patient_zero_file',
+    name: '《1986 年第零號受試者：白川鏡花病歷》',
+    category: 'historical_document',
+    sourceObjectId: 'doc_kyoka_patient_zero_file',
+    discoveredAreaId: 'forbidden_archive',
+    description:
+      '林靜儀封存於禁書室暗格的機密病歷，揭露現任地下研究所所長白川鏡花曾是 1986 年初代第 29 號席位的唯一倖存受試者。',
+    importance: 'critical',
+    baseWeight: 9,
+    analysisBonusWeight: 5,
+    isRedHerring: false,
+    analysisConclusion:
+      '揭開白川鏡花狂熱執著於雙胞胎共鳴的心理根源，是解鎖隱藏結局 E《觀察者》的核心文獻。',
+  },
+
+  ev_bell_tower_189hz_log: {
+    id: 'ev_bell_tower_189hz_log',
+    name: '頂樓鐘塔 18.9Hz 第四聲鐘響調變波形紀錄',
+    category: 'physical_item',
+    sourceObjectId: 'obj_bell_tower_amplifier',
+    discoveredAreaId: 'rooftop',
+    description:
+      '從頂樓鐘塔次聲波調變器取得的示波器紀錄紙，證實每日黃昏第四聲鐘響混入了高功率 18.9Hz 共振波。',
+    importance: 'high',
+    baseWeight: 7,
+    analysisBonusWeight: 4,
+    isRedHerring: false,
+    analysisConclusion:
+      '結合陸子軒的逆相波發射台，可在第四章將頂樓鐘塔反轉為解除全校催眠的覺醒廣播站。',
+  },
+
+  ev_b1_transfer_manifest: {
+    id: 'ev_b1_transfer_manifest',
+    name: '《特殊檢體移交 B1 簽收單》與甜味鎮靜劑化驗單',
+    category: 'historical_document',
+    sourceObjectId: 'doc_b1_transfer_manifest',
+    discoveredAreaId: 'infirmary',
+    description:
+      '保健室藥品櫃夾層中的簽收單，由駐校校醫陳孟哲親筆簽署，記載將昏迷的林曉月經由手術室升降梯移交地下 B1。',
+    importance: 'critical',
+    baseWeight: 9,
+    analysisBonusWeight: 5,
+    isRedHerring: false,
+    analysisConclusion:
+      '證實保健室最內側隱藏著通往地下 B1～B3 實驗室的主升降梯，並揭穿陳孟哲投藥的罪行。',
+  },
+
+  // ==========================================================================
   // 三大錯誤線索 (Red Herrings，對應 MAIN_STORY.md 第五節)
   // ==========================================================================
   rh_fake_love_letter: {

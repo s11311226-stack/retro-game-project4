@@ -55,4 +55,9 @@ export const GameEvents = {
   RELATIONSHIP_UPDATED: 'phase6a:relationship-updated',
   EVIDENCE_UPDATED: 'phase6a:evidence-updated',
   QUEST_UPDATED: 'phase6a:quest-updated',
+  NPC_DIALOGUE_UPDATED: 'phase6b:npc-dialogue-updated',
+  UI_REQUEST_SELECT_NPC_CHOICE: 'phase6b:ui-select-npc-choice',
+  TIME_PHASE_CHANGED: 'phase6b:time-phase-changed',
+  UI_REQUEST_CYCLE_TIME_PHASE: 'phase6b:ui-cycle-time-phase',
+  UI_REQUEST_SCROLL_DOCUMENT: 'phase6b:ui-scroll-document',
 } as const;

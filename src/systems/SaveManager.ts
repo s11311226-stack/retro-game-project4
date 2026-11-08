@@ -11,6 +11,7 @@ import {
   SAVE_SCHEMA_VERSION,
   type AreaId,
   type AudioSettingsData,
+  type CampusTimePhase,
   type ClueEntryDef,
   type FacingDirection,
   type GameSavePayloadV2,
@@ -21,12 +22,20 @@ import {
   type StoryFlagId,
 } from '../types';
 import {
+  CampusAtmosphereSystem,
+  globalCampusAtmosphere,
+} from './CampusAtmosphereSystem';
+import {
   CharacterRelationshipSystem,
   globalRelationshipSystem,
 } from './CharacterRelationshipSystem';
 import { EvidenceSystem, globalEvidenceSystem } from './EvidenceSystem';
 import type { ExplorationStateManager } from './ExplorationStateManager';
 import { GlobalGameState, globalGameState } from './GlobalGameState';
+import {
+  NPCInteractionSystem,
+  globalNPCInteractionSystem,
+} from './NPCInteractionSystem';
 import { QuestSystem, globalQuestSystem } from './QuestSystem';
 import type { StoryStateManager } from './StoryStateManager';
 
@@ -38,6 +47,8 @@ export interface Phase6AManagersBundle {
   relationships?: CharacterRelationshipSystem;
   evidence?: EvidenceSystem;
   quests?: QuestSystem;
+  atmosphere?: CampusAtmosphereSystem;
+  npcInteraction?: NPCInteractionSystem;
 }
 
 const VALID_AREA_IDS = new Set<AreaId>([
@@ -45,6 +56,13 @@ const VALID_AREA_IDS = new Set<AreaId>([
   'bulletin_area',
   'corridor',
   'classroom',
+  'academic_office',
+  'teachers_office',
+  'dormitory',
+  'old_library',
+  'forbidden_archive',
+  'rooftop',
+  'infirmary',
 ]);
 
 const VALID_STORY_FLAGS = new Set<StoryFlagId>([
@@ -154,6 +172,8 @@ export class SaveManager {
     const relSys = phase6aManagers?.relationships ?? globalRelationshipSystem;
     const evSys = phase6aManagers?.evidence ?? globalEvidenceSystem;
     const qSys = phase6aManagers?.quests ?? globalQuestSystem;
+    const atmSys = phase6aManagers?.atmosphere ?? globalCampusAtmosphere;
+    const npcSys = phase6aManagers?.npcInteraction ?? globalNPCInteractionSystem;
 
     const payload: GameSavePayloadV2 = {
       schemaVersion: SAVE_SCHEMA_VERSION,
@@ -189,6 +209,9 @@ export class SaveManager {
         relationships: relSys.toSaveData(),
         evidence: evSys.serialize(),
         quests: qSys.serialize(),
+        timePhase: atmSys.getCurrentPhase(),
+        npcCompletedChoiceIds: npcSys.serialize().completedChoiceIds,
+        investigatedObjectIds: exploration.getInvestigatedObjectIds(),
       },
     };
 
@@ -315,6 +338,7 @@ export class SaveManager {
       areaId: saveData.player.areaId,
       spawnId: saveData.player.spawnId,
       collectedObjectIds: saveData.exploration.collectedObjectIds,
+      investigatedObjectIds: saveData.phase6a?.investigatedObjectIds ?? [],
       inventoryItems: restoredItems,
       clues: restoredClues,
       unlockedPortalIds: saveData.exploration.unlockedPortalIds,
@@ -327,11 +351,13 @@ export class SaveManager {
       metrics: saveData.story.metrics,
     });
 
-    // 同步還原 Phase 6A 核心系統
+    // 同步還原 Phase 6A & 6B 核心系統
     const gState = phase6aManagers?.globalState ?? globalGameState;
     const relSys = phase6aManagers?.relationships ?? globalRelationshipSystem;
     const evSys = phase6aManagers?.evidence ?? globalEvidenceSystem;
     const qSys = phase6aManagers?.quests ?? globalQuestSystem;
+    const atmSys = phase6aManagers?.atmosphere ?? globalCampusAtmosphere;
+    const npcSys = phase6aManagers?.npcInteraction ?? globalNPCInteractionSystem;
 
     const legacyEvidenceIds = [
       ...saveData.exploration.clueIds,
@@ -343,6 +369,10 @@ export class SaveManager {
       relSys.restoreFromSaveData(saveData.phase6a.relationships);
       evSys.restoreFromSave(saveData.phase6a.evidence, legacyEvidenceIds);
       qSys.restoreFromSave(saveData.phase6a.quests, saveData.story.flags);
+      atmSys.restoreFromSave(saveData.phase6a.timePhase);
+      npcSys.restoreFromSave({
+        completedChoiceIds: saveData.phase6a.npcCompletedChoiceIds ?? [],
+      });
       // 若存檔中有自訂的全域變數（如 injuryCount / corporateAlert / publicExposure 等），確保還原後不被覆蓋
       if (saveData.phase6a.globalVariables) {
         gState.restoreFromSaveData({
@@ -360,6 +390,8 @@ export class SaveManager {
       relSys.reset();
       evSys.restoreFromSave(undefined, legacyEvidenceIds);
       qSys.reset();
+      atmSys.reset();
+      npcSys.reset();
       qSys.evaluateAndSyncQuests(
         saveData.story.flags,
         saveData.story.completedEventIds
@@ -650,11 +682,29 @@ export class SaveManager {
       );
     }
 
+    const validTimePhase: CampusTimePhase =
+      rawPhase6a?.timePhase === 'dusk' || rawPhase6a?.timePhase === 'night'
+        ? rawPhase6a.timePhase
+        : 'day';
+    const validNpcChoices = Array.isArray(rawPhase6a?.npcCompletedChoiceIds)
+      ? rawPhase6a.npcCompletedChoiceIds.filter(
+          (id): id is string => typeof id === 'string'
+        )
+      : [];
+    const validInvestigated = Array.isArray(rawPhase6a?.investigatedObjectIds)
+      ? rawPhase6a.investigatedObjectIds.filter(
+          (id): id is string => typeof id === 'string'
+        )
+      : [];
+
     return {
       globalVariables: tempGlobal.toSaveData(),
       relationships: tempRel.toSaveData(),
       evidence: tempEv.serialize(),
       quests: tempQuest.serialize(),
+      timePhase: validTimePhase,
+      npcCompletedChoiceIds: validNpcChoices,
+      investigatedObjectIds: validInvestigated,
     };
   }
 

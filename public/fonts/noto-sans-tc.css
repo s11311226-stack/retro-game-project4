@@ -1,0 +1,55 @@
+/*
+ * 《無名校區》(Nameless Campus) — 繁體中文正式版字體定義
+ * 優先採用 Noto Sans TC / Noto Sans CJK TC，並確保離線與正式部署環境下皆有清晰無缺字的繁體中文回退鏈。
+ */
+@font-face {
+  font-family: 'Noto Sans TC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local('Noto Sans TC Regular'),
+    local('Noto Sans TC'),
+    local('Noto Sans CJK TC Regular'),
+    local('Noto Sans CJK TC'),
+    local('Source Han Sans TC Regular'),
+    local('Source Han Sans TC'),
+    local('Microsoft JhengHei'),
+    local('PingFang TC');
+}
+
+@font-face {
+  font-family: 'Noto Sans TC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src:
+    local('Noto Sans TC Bold'),
+    local('Noto Sans TC'),
+    local('Noto Sans CJK TC Bold'),
+    local('Noto Sans CJK TC'),
+    local('Source Han Sans TC Bold'),
+    local('Microsoft JhengHei Bold'),
+    local('Microsoft JhengHei'),
+    local('PingFang TC');
+}
+
+@font-face {
+  font-family: 'Noto Sans CJK TC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local('Noto Sans CJK TC Regular'),
+    local('Noto Sans CJK TC'),
+    local('Noto Sans TC Regular'),
+    local('Noto Sans TC'),
+    local('Source Han Sans TC'),
+    local('Microsoft JhengHei'),
+    local('PingFang TC');
+}
+
+:root {
+  --nc-font-sans-tc: 'Noto Sans TC', 'Noto Sans CJK TC', 'Source Han Sans TC',
+    'PingFang TC', 'Microsoft JhengHei', sans-serif;
+}

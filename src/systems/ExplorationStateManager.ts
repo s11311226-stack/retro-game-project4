@@ -1,4 +1,4 @@
-import { CAMPUS_AREAS, getAreaDefinition } from '../data/campusAreas';
+import { CAMPUS_AREAS, ITEMS_CATALOG, getAreaDefinition } from '../data/campusAreas';
 import type {
   AreaId,
   ClueEntryDef,
@@ -32,6 +32,7 @@ export class ExplorationStateManager {
   private currentSpawnId = 'initial_spawn';
 
   private collectedObjectIds = new Set<string>();
+  private investigatedObjectIds = new Set<string>();
   private inventoryMap = new Map<string, InventoryItemDef>();
   private cluesMap = new Map<string, ClueEntryDef>();
   private unlockedPortalIds = new Set<string>();
@@ -46,6 +47,7 @@ export class ExplorationStateManager {
 
   public resetSession(initialAreaId: AreaId = 'school_gate', initialSpawnId = 'initial_spawn'): void {
     this.collectedObjectIds.clear();
+    this.investigatedObjectIds.clear();
     this.inventoryMap.clear();
     this.cluesMap.clear();
     this.unlockedPortalIds.clear();
@@ -112,8 +114,32 @@ export class ExplorationStateManager {
     return this.collectedObjectIds.has(objectId);
   }
 
+  public isObjectInvestigated(objectId: string): boolean {
+    return this.investigatedObjectIds.has(objectId);
+  }
+
+  public markObjectInvestigated(objectId: string): void {
+    this.investigatedObjectIds.add(objectId);
+  }
+
+  public getInvestigatedObjectIds(): string[] {
+    return Array.from(this.investigatedObjectIds);
+  }
+
   public hasItem(itemId: string): boolean {
     return this.inventoryMap.has(itemId);
+  }
+
+  /**
+   * 授予指定目錄物品至背包（供 NPC 對話獎勵或劇情事件使用）
+   */
+  public grantItem(itemId: string): InventoryItemDef | null {
+    const def = ITEMS_CATALOG[itemId];
+    if (!def) {
+      return null;
+    }
+    this.inventoryMap.set(def.id, def);
+    return def;
   }
 
   public getInventoryItems(): InventoryItemDef[] {
@@ -147,11 +173,13 @@ export class ExplorationStateManager {
     areaId: AreaId;
     spawnId: string;
     collectedObjectIds: string[];
+    investigatedObjectIds?: string[];
     inventoryItems: InventoryItemDef[];
     clues: ClueEntryDef[];
     unlockedPortalIds: string[];
   }): void {
     this.collectedObjectIds = new Set(payload.collectedObjectIds);
+    this.investigatedObjectIds = new Set(payload.investigatedObjectIds ?? []);
     this.inventoryMap.clear();
     for (const item of payload.inventoryItems) {
       this.inventoryMap.set(item.id, item);
@@ -324,12 +352,15 @@ export class ExplorationStateManager {
         return this.handleExamineInteraction(obj);
       case 'portal':
         return this.handlePortalInteraction(obj, playerColliderWidth);
+      case 'npc':
+        return this.handleNPCInteraction(obj);
     }
   }
 
   private handlePickupInteraction(obj: InteractableDefinition): InteractionExecutionResult {
     const pickupData = obj.pickup!;
     this.collectedObjectIds.add(obj.id);
+    this.investigatedObjectIds.add(obj.id);
     this.inventoryMap.set(pickupData.item.id, pickupData.item);
     this.activeModalState = 'inspect';
 
@@ -341,12 +372,15 @@ export class ExplorationStateManager {
       title: `獲得物品：${pickupData.item.name}`,
       messages: [pickupData.pickupMessage, pickupData.item.description],
       acquiredItem: pickupData.item,
+      grantedEvidenceId: obj.grantEvidenceId,
     };
   }
 
   private handleDocumentInteraction(obj: InteractableDefinition): InteractionExecutionResult {
     const doc = obj.document!;
     let newlyAddedClue: ClueEntryDef | undefined;
+
+    this.investigatedObjectIds.add(obj.id);
 
     // 規則 7：文件可重複閱讀，但不應重複新增同一條線索
     if (doc.clue && !this.cluesMap.has(doc.clue.id)) {
@@ -365,11 +399,14 @@ export class ExplorationStateManager {
       messages: [...doc.pages],
       document: doc,
       newlyAddedClue,
+      grantedEvidenceId: obj.grantEvidenceId,
     };
   }
 
   private handleExamineInteraction(obj: InteractableDefinition): InteractionExecutionResult {
     let newlyAddedClue: ClueEntryDef | undefined;
+
+    this.investigatedObjectIds.add(obj.id);
 
     if (obj.clue && !this.cluesMap.has(obj.clue.id)) {
       this.cluesMap.set(obj.clue.id, obj.clue);
@@ -386,6 +423,22 @@ export class ExplorationStateManager {
       title: `調查：${obj.name}`,
       messages: obj.inspectLines ? [...obj.inspectLines] : [`你仔細觀察了${obj.name}。`],
       newlyAddedClue,
+      grantedEvidenceId: obj.grantEvidenceId,
+    };
+  }
+
+  private handleNPCInteraction(obj: InteractableDefinition): InteractionExecutionResult {
+    this.investigatedObjectIds.add(obj.id);
+    this.activeModalState = 'dialogue';
+
+    return {
+      success: true,
+      objectId: obj.id,
+      kind: 'npc',
+      uiState: 'dialogue',
+      title: obj.name,
+      messages: obj.inspectLines ? [...obj.inspectLines] : [`你向${obj.name}搭話。`],
+      npcId: obj.npcId,
     };
   }
 

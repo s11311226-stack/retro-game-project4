@@ -432,8 +432,16 @@ export class CharacterRelationshipSystem {
     }
     if (cond.requiredEvidenceIds && cond.requiredEvidenceIds.length > 0) {
       const evSet = new Set(collectedEvidenceIds);
+      const aliasMap: Record<string, string> = {
+        ev_missing_student_poster: 'clue_missing_student_poster',
+        ev_brass_locker_token: 'item_brass_locker_token',
+        ev_mysterious_school_file: 'clue_mysterious_school_file',
+      };
       for (const reqEv of cond.requiredEvidenceIds) {
-        if (!evSet.has(reqEv)) return false;
+        const alias = aliasMap[reqEv];
+        if (!evSet.has(reqEv) && (!alias || !evSet.has(alias))) {
+          return false;
+        }
       }
     }
     return true;

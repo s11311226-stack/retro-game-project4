@@ -2,15 +2,19 @@ import Phaser from 'phaser';
 import { DEFAULT_PLAYER_CONFIG, LOGICAL_WIDTH } from '../config/playerConfig';
 import { GameEvents, globalEventBus } from '../core/EventBus';
 import { getAreaDefinition } from '../data/campusAreas';
+import { getNPCScenePlacement } from '../data/npcDialoguesCatalog';
 import { InteractablePlaceholderRenderer } from '../entities/InteractablePlaceholderRenderer';
 import { PlaceholderCharacterRenderer } from '../entities/PlaceholderCharacterRenderer';
 import { PlayerController } from '../entities/PlayerController';
 import { globalAudioSynth } from '../systems/AudioSynthManager';
+import { globalCampusAtmosphere } from '../systems/CampusAtmosphereSystem';
 import { globalRelationshipSystem } from '../systems/CharacterRelationshipSystem';
 import { globalEvidenceSystem } from '../systems/EvidenceSystem';
 import { globalExplorationState } from '../systems/ExplorationStateManager';
+import { globalFontManager } from '../systems/FontManager';
 import { globalGameState } from '../systems/GlobalGameState';
 import { InputManager } from '../systems/InputManager';
+import { globalNPCInteractionSystem } from '../systems/NPCInteractionSystem';
 import { globalQuestSystem } from '../systems/QuestSystem';
 import { globalSaveManager } from '../systems/SaveManager';
 import {
@@ -20,6 +24,7 @@ import {
 import type {
   AreaDefinition,
   AreaId,
+  CampusTimePhase,
   FacingDirection,
   ICharacterVisualAdapter,
   InteractableDefinition,
@@ -38,10 +43,10 @@ export interface SceneTransitionData {
 /**
  * 校園可探索區域共用場景基底類別 (BaseExplorationScene)
  *
- * 1. 四大區域（校門、公告欄區域、校園走廊、教室）各自為獨立的 Scene 子類別，擁有獨立碰撞邊界、可行走區域與出入口設定。
+ * 1. 支援全部 11 個地面校園探索場景（校門、公告欄區域、校園走廊、教室、教務處、教師辦公室、宿舍、舊圖書館、禁書室、頂樓、保健室）。
  * 2. 完整保留並共用 Phase 1 已驗收的 `PlayerController`、`InputManager`、`PlaceholderCharacterRenderer`。
- * 3. 整合 `ExplorationStateManager`、`StoryStateManager`、`SaveManager` 與 `AudioSynthManager`。
- * 4. 完整涵蓋 7 大音效觸發：腳步、跳躍、攻擊、格擋、互動/拾取、開門與神祕訊息演出。
+ * 3. 整合 `ExplorationStateManager`、`StoryStateManager`、`NPCInteractionSystem`、`CampusAtmosphereSystem`、`SaveManager` 與 `AudioSynthManager`。
+ * 4. 支援日間 (`day`)、黃昏 (`dusk` 第四聲鐘響 18.9Hz) 與夜間 (`night`) 視覺氛圍渲染與音訊演出。
  */
 export abstract class BaseExplorationScene extends Phaser.Scene {
   protected readonly areaId: AreaId;
@@ -51,6 +56,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
   protected playerController!: PlayerController;
   protected playerVisual!: ICharacterVisualAdapter;
   protected interactableRenderers: InteractablePlaceholderRenderer[] = [];
+  protected atmosphereOverlay?: Phaser.GameObjects.Graphics;
 
   protected isGamePaused = false;
   protected isTransitioning = false;
@@ -91,11 +97,15 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     // 1. 繪製當前區域專屬背景、牆面、地面與邊界標示
     this.renderAreaEnvironment();
 
-    // 2. 初始化集中式輸入管理
+    // 2. 建立日／黃昏／夜氛圍光影疊層
+    this.atmosphereOverlay = this.add.graphics().setDepth(30);
+    this.syncAtmosphereOverlay();
+
+    // 3. 初始化集中式輸入管理
     this.inputManager = new InputManager();
     this.inputManager.attachToDom(window);
 
-    // 3. 計算安全落地出生點（或讀檔還原座標，確保不卡牆、不懸空）並初始化 PlayerController
+    // 4. 計算安全落地出生點（或讀檔還原座標，確保不卡牆、不懸空）並初始化 PlayerController
     const spawnLoc = globalExplorationState.getCurrentSpawnLocation(
       DEFAULT_PLAYER_CONFIG.collider.width
     );
@@ -122,21 +132,21 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     this.playerController.setSpawnPosition(startX, startY, startFacing);
     this.previousPlayerState = 'idle';
 
-    // 4. 初始化角色占位視覺渲染器
+    // 5. 初始化角色占位視覺渲染器
     this.playerVisual = new PlaceholderCharacterRenderer(
       this,
       this.playerController.getConfig()
     );
 
-    // 5. 建立本區域所有互動物件渲染器與滑鼠點擊綁定
+    // 6. 建立本區域所有互動物件與 NPC 渲染器與滑鼠點擊綁定
     this.createAreaInteractables();
 
-    // 6. 若在走廊場景，一併繪製 Phase 1 靜態擊打測試標靶以維持向下相容
+    // 7. 若在走廊場景，一併繪製 Phase 1 靜態擊打測試標靶以維持向下相容
     if (this.areaId === 'corridor') {
       this.createCombatHitDummy();
     }
 
-    // 7. 設定攝影機邊界並立即對齊玩家初始位置
+    // 8. 設定攝影機邊界並立即對齊玩家初始位置
     this.cameras.main.setBounds(
       0,
       0,
@@ -151,7 +161,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     );
     this.cameras.main.fadeIn(180, 8, 12, 20);
 
-    // 8. 訂閱來自 UIScene 的事件請求
+    // 9. 訂閱來自 UIScene 的事件請求
     this.unsubscribers.push(
       globalEventBus.on(GameEvents.UI_REQUEST_CLOSE_MODAL, () => {
         if (!this.isTransitioning && !this.isGamePaused) {
@@ -160,9 +170,25 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       }),
       globalEventBus.on(GameEvents.UI_REQUEST_ADVANCE_DIALOGUE, () => {
         if (!this.isTransitioning && !this.isGamePaused) {
-          this.handleAdvanceStoryDialogue();
+          this.handleAdvanceDialogue();
         }
       }),
+      globalEventBus.on(
+        GameEvents.UI_REQUEST_SELECT_NPC_CHOICE,
+        (payload?: { choiceId: string }) => {
+          if (!this.isTransitioning && !this.isGamePaused && payload?.choiceId) {
+            this.handleSelectNPCChoice(payload.choiceId);
+          }
+        }
+      ),
+      globalEventBus.on(
+        GameEvents.UI_REQUEST_CYCLE_TIME_PHASE,
+        (payload?: { targetPhase?: CampusTimePhase }) => {
+          if (!this.isTransitioning) {
+            this.handleCycleTimePhase(payload?.targetPhase);
+          }
+        }
+      ),
       globalEventBus.on(GameEvents.UI_REQUEST_TOGGLE_INVENTORY, () => {
         if (!this.isTransitioning && !this.isGamePaused) {
           this.toggleInventory();
@@ -182,13 +208,17 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       })
     );
 
-    // 9. 初始同步畫面與全域事件
+    // 10. 初始同步畫面與全域事件
     this.playerVisual.syncVisuals(initialSnapshot);
     this.syncInteractablesAndPrompt(initialSnapshot.x);
 
     globalEventBus.emit(GameEvents.AREA_CHANGED, {
       area: this.areaDef,
       spawn: spawnLoc,
+    });
+    globalEventBus.emit(GameEvents.TIME_PHASE_CHANGED, {
+      phase: globalCampusAtmosphere.getCurrentPhase(),
+      profile: globalCampusAtmosphere.getCurrentProfile(),
     });
     globalEventBus.emit(GameEvents.PLAYER_STATE_CHANGED, initialSnapshot);
     globalEventBus.emit(
@@ -204,7 +234,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       globalStoryState.getCurrentObjective()
     );
 
-    // 10. 檢查進入此區域是否有劇情演出（例如校門初始入學演出、首次進入教室演出）
+    // 11. 檢查進入此區域是否有劇情演出（例如校門初始入學演出、首次進入教室演出）
     const areaDialogue = globalStoryState.checkAreaEnterTriggers(this.areaId);
     if (areaDialogue) {
       this.enterStoryDialogueMode(areaDialogue);
@@ -214,12 +244,13 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       this.performSaveGame(false);
     }
 
-    // 11. 註冊 Scene 關閉時的清理邏輯
+    // 12. 註冊 Scene 關閉時的清理邏輯
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.inputManager.detachFromDom();
       this.playerVisual.destroy();
       this.interactableRenderers.forEach((r) => r.destroy());
       this.interactableRenderers = [];
+      this.atmosphereOverlay?.destroy();
       this.unsubscribers.forEach((unsub) => unsub());
       this.unsubscribers = [];
     });
@@ -242,14 +273,16 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       return;
     }
 
-    // 若在劇情對話演出模式 (dialogue)，按 E / Space / J 可推進下一句對話
+    // 若在劇情或 NPC 對話演出模式 (dialogue)，按 E / Space / J 可推進下一句對話
     if (currentModal === 'dialogue') {
       if (
         inputSnapshot.interactJustPressed ||
         inputSnapshot.jumpJustPressed ||
         inputSnapshot.attackJustPressed
       ) {
-        this.handleAdvanceStoryDialogue();
+        this.handleAdvanceDialogue();
+      } else if (inputSnapshot.pauseJustPressed) {
+        this.handleCloseActiveModal();
       }
       return;
     }
@@ -262,12 +295,11 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       return;
     }
 
-    // 處理背包開啟狀態
+    // 處理背包與正式版系統中心開啟狀態
     if (currentModal === 'inventory') {
       if (
         inputSnapshot.inventoryJustPressed ||
-        inputSnapshot.pauseJustPressed ||
-        inputSnapshot.interactJustPressed
+        inputSnapshot.pauseJustPressed
       ) {
         globalExplorationState.closeModal();
         this.inputManager.resetAllInputs();
@@ -292,7 +324,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       return;
     }
 
-    // 處理按 E 進行環境互動
+    // 處理按 E 進行環境或 NPC 互動
     const currentSnap = this.playerController.getSnapshot();
     if (inputSnapshot.interactJustPressed) {
       const candidate = globalExplorationState.findCandidateInRange(
@@ -434,6 +466,11 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
 
   private handleCloseActiveModal(): void {
     const closedObjId = globalExplorationState.getLastInteractedObjectId();
+    if (globalNPCInteractionSystem.getActiveSession()) {
+      globalNPCInteractionSystem.closeSession();
+      globalEventBus.emit(GameEvents.NPC_DIALOGUE_UPDATED, null);
+    }
+
     globalExplorationState.closeModal();
     this.inputManager.resetAllInputs();
     globalAudioSynth.playUiClick();
@@ -461,6 +498,135 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
 
     globalEventBus.emit(GameEvents.STORY_DIALOGUE_UPDATED, dialogue);
     this.emitModalState(null);
+  }
+
+  private handleAdvanceDialogue(): void {
+    // 若目前正在進行 NPC 角色互動對話，優先推進 NPC 對話
+    const activeNpcSession = globalNPCInteractionSystem.getActiveSession();
+    if (activeNpcSession) {
+      globalAudioSynth.playUiClick();
+      this.inputManager.resetAllInputs();
+
+      // 若已顯示選項，按空白鍵或 E 時不強制關閉，等待玩家點選選項或按數字鍵；若無選項則推進
+      if (
+        activeNpcSession.showingChoices &&
+        activeNpcSession.availableChoices.length > 0
+      ) {
+        return;
+      }
+
+      const nextSession = globalNPCInteractionSystem.advanceLine();
+      if (nextSession) {
+        globalEventBus.emit(GameEvents.NPC_DIALOGUE_UPDATED, nextSession);
+        return;
+      }
+
+      globalEventBus.emit(GameEvents.NPC_DIALOGUE_UPDATED, null);
+      globalExplorationState.setModalState('none');
+      this.performSaveGame(false);
+      this.emitModalState(null);
+      return;
+    }
+
+    this.handleAdvanceStoryDialogue();
+  }
+
+  private handleSelectNPCChoice(choiceId: string): void {
+    globalAudioSynth.playUiClick();
+    this.inputManager.resetAllInputs();
+
+    if (choiceId === '__close_npc_dialogue__') {
+      globalNPCInteractionSystem.closeSession();
+      globalEventBus.emit(GameEvents.NPC_DIALOGUE_UPDATED, null);
+      globalExplorationState.setModalState('none');
+      this.performSaveGame(false);
+      this.emitModalState(null);
+      return;
+    }
+
+    const activeSession = globalNPCInteractionSystem.getActiveSession();
+    const placementId = globalExplorationState.getLastInteractedObjectId();
+    const placement = placementId ? getNPCScenePlacement(placementId) : null;
+    const choiceDef = placement?.choices.find((c) => c.id === choiceId);
+
+    const selectRes = globalNPCInteractionSystem.selectChoice(
+      choiceId,
+      globalStoryState.getFlags(),
+      globalCampusAtmosphere.getCurrentPhase()
+    );
+    const updatedSession = selectRes.session;
+
+    // 若該對話選項授予背包物品，立即加入 ExplorationStateManager 與 EvidenceSystem
+    if (choiceDef?.outcome?.grantItemId) {
+      const grantedItem = globalExplorationState.grantItem(
+        choiceDef.outcome.grantItemId
+      );
+      if (grantedItem) {
+        globalEvidenceSystem.collectEvidence(grantedItem.id);
+        globalAudioSynth.playItemPickup();
+        globalEventBus.emit(
+          GameEvents.INVENTORY_UPDATED,
+          globalExplorationState.getInventoryItems()
+        );
+      }
+    }
+
+    // 若該對話選項切換時段
+    if (choiceDef?.outcome?.advanceTimePhaseTo) {
+      this.handleCycleTimePhase(choiceDef.outcome.advanceTimePhaseTo);
+    }
+
+    if (updatedSession) {
+      globalEventBus.emit(GameEvents.NPC_DIALOGUE_UPDATED, updatedSession);
+    } else if (activeSession) {
+      globalEventBus.emit(GameEvents.NPC_DIALOGUE_UPDATED, null);
+      globalExplorationState.setModalState('none');
+      this.emitModalState(null);
+    }
+  }
+
+  private handleCycleTimePhase(targetPhase?: CampusTimePhase): void {
+    const hasChime =
+      globalExplorationState.hasItem('item_yulan_tuning_fork') ||
+      globalEvidenceSystem.hasEvidence('item_yulan_tuning_fork');
+
+    const res = targetPhase
+      ? globalCampusAtmosphere.transitionToPhase(targetPhase, {
+          hasCounterPhaseChime: hasChime,
+        })
+      : globalCampusAtmosphere.cycleNextPhase({
+          hasCounterPhaseChime: hasChime,
+        });
+
+    if (res.fourthBellTriggered) {
+      globalAudioSynth.playFourthBellChime();
+      if (res.protectedByCounterChime) {
+        globalAudioSynth.playCounterPhaseChime();
+      } else {
+        this.cameras.main.shake(220, 0.003);
+      }
+    } else {
+      globalAudioSynth.playUiClick();
+    }
+
+    this.syncAtmosphereOverlay();
+    globalEventBus.emit(GameEvents.TIME_PHASE_CHANGED, {
+      phase: res.currentPhase,
+      profile: globalCampusAtmosphere.getCurrentProfile(),
+      message: res.message,
+    });
+    globalEventBus.emit(GameEvents.SAVE_STATUS_NOTIFICATION, res.message);
+  }
+
+  private syncAtmosphereOverlay(): void {
+    if (!this.atmosphereOverlay) return;
+    const profile = globalCampusAtmosphere.getCurrentProfile();
+    const { width, height } = this.areaDef.bounds;
+    this.atmosphereOverlay.clear();
+    if (profile.tintAlpha > 0) {
+      this.atmosphereOverlay.fillStyle(profile.tintColor, profile.tintAlpha);
+      this.atmosphereOverlay.fillRect(0, 0, width, height);
+    }
   }
 
   private handleAdvanceStoryDialogue(): void {
@@ -525,6 +691,8 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     globalRelationshipSystem.reset();
     globalEvidenceSystem.reset();
     globalQuestSystem.reset();
+    globalCampusAtmosphere.reset();
+    globalNPCInteractionSystem.reset();
     this.scene.start('SchoolGateScene', { spawnId: 'initial_spawn' });
   }
 
@@ -608,11 +776,53 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       );
     }
 
+    if (result.grantedEvidenceId) {
+      globalEvidenceSystem.collectEvidence(result.grantedEvidenceId);
+    }
+
+    // 若該互動物件觸發時段切換（如宿舍床鋪休息）
+    if (result.success && def.triggersTimeCycle) {
+      const hasChime =
+        globalExplorationState.hasItem('item_yulan_tuning_fork') ||
+        globalEvidenceSystem.hasEvidence('item_yulan_tuning_fork');
+      const timeRes = globalCampusAtmosphere.cycleNextPhase({
+        hasCounterPhaseChime: hasChime,
+      });
+      if (timeRes.fourthBellTriggered) {
+        globalAudioSynth.playFourthBellChime();
+        if (timeRes.protectedByCounterChime) {
+          globalAudioSynth.playCounterPhaseChime();
+        }
+      }
+      this.syncAtmosphereOverlay();
+      result.messages.push(timeRes.message);
+      globalEventBus.emit(GameEvents.TIME_PHASE_CHANGED, {
+        phase: timeRes.currentPhase,
+        profile: globalCampusAtmosphere.getCurrentProfile(),
+        message: timeRes.message,
+      });
+    }
+
     if (result.success) {
       globalQuestSystem.evaluateAndSyncQuests(
         globalStoryState.getFlags(),
         globalStoryState.getCompletedEventIds()
       );
+    }
+
+    // 若互動對象為 NPC，啟動 NPCInteractionSystem 對話會話
+    if (result.success && result.kind === 'npc') {
+      const npcSession = globalNPCInteractionSystem.startDialogue(
+        def.id,
+        globalStoryState.getFlags(),
+        globalCampusAtmosphere.getCurrentPhase()
+      );
+      if (npcSession) {
+        this.syncInteractablesAndPrompt(playerX);
+        globalEventBus.emit(GameEvents.NPC_DIALOGUE_UPDATED, npcSession);
+        this.emitModalState(result);
+        return;
+      }
     }
 
     if (result.success && result.portalTransition) {
@@ -657,6 +867,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     for (const renderer of this.interactableRenderers) {
       const def = renderer.getDefinition();
       const isCollected = globalExplorationState.isObjectCollected(def.id);
+      const isInvestigated = globalExplorationState.isObjectInvestigated(def.id);
       const isInRange =
         !isCollected && globalExplorationState.isPlayerInRange(playerX, def);
       const isFocused =
@@ -664,6 +875,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
 
       renderer.syncInteractableVisual(def, {
         isCollected,
+        isInvestigated,
         isInRange,
         isFocused,
         isHovered: renderer.isHovered(),
@@ -744,6 +956,74 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
         g.fillRect(x, 68, 84, 78);
         g.strokeRect(x, 68, 84, 78);
       }
+    } else if (this.areaId === 'academic_office') {
+      // 教務處：胡桃木護牆板、白川基金會橫幅與檔案櫃列
+      g.fillStyle(secondaryWallColor, 0.95);
+      g.fillRect(0, floorY - 110, width, 110);
+      g.lineStyle(2, accentColor, 0.8);
+      g.lineBetween(0, floorY - 110, width, floorY - 110);
+      for (let x = 140; x < width - 100; x += 170) {
+        g.fillStyle(0x0f172a, 0.7);
+        g.fillRect(x, 54, 96, 86);
+        g.lineStyle(2, 0x64748b, 0.9);
+        g.strokeRect(x, 54, 96, 86);
+      }
+    } else if (this.areaId === 'teachers_office') {
+      // 教師辦公室：辦公隔間與牆上課表白板
+      g.fillStyle(secondaryWallColor, 0.9);
+      g.fillRect(0, floorY - 100, width, 100);
+      g.fillStyle(0x1e293b, 0.85);
+      g.fillRect(200, 62, 160, 68);
+      g.lineStyle(2, 0x38bdf8, 0.6);
+      g.strokeRect(200, 62, 160, 68);
+    } else if (this.areaId === 'dormitory') {
+      // 學生宿舍：暖色壁燈、窗簾與雙人房格局
+      g.fillStyle(secondaryWallColor, 0.92);
+      g.fillRect(0, floorY - 104, width, 104);
+      for (let x = 220; x < width - 140; x += 260) {
+        g.fillStyle(0x1e1b4b, 0.75);
+        g.fillRect(x, 58, 90, 82);
+        g.lineStyle(2, 0xf59e0b, 0.7);
+        g.strokeRect(x, 58, 90, 82);
+      }
+    } else if (this.areaId === 'old_library') {
+      // 舊圖書館：挑高拱形書牆與彩繪高窗
+      for (let x = 90; x < width - 80; x += 160) {
+        g.fillStyle(secondaryWallColor, 0.85);
+        g.fillRect(x, 38, 110, floorY - 38);
+        g.lineStyle(1, accentColor, 0.5);
+        g.strokeRect(x, 38, 110, floorY - 38);
+      }
+    } else if (this.areaId === 'forbidden_archive') {
+      // 禁書室：地下石砌封存室與紅外線警戒線
+      g.fillStyle(secondaryWallColor, 0.95);
+      g.fillRect(0, 32, width, floorY - 32);
+      g.lineStyle(1, 0xef4444, 0.35);
+      for (let y = 70; y < floorY; y += 48) {
+        g.lineBetween(20, y, width - 20, y);
+      }
+    } else if (this.areaId === 'rooftop') {
+      // 頂樓與鐘塔：夜空遠景、防墜鐵絲網與高聳鐘塔剪影
+      g.fillStyle(0x0f172a, 0.85);
+      g.fillRect(460, 18, 150, floorY - 18); // 鐘塔高塔結構
+      g.lineStyle(2, 0x475569, 0.9);
+      g.strokeRect(460, 18, 150, floorY - 18);
+      // 鐵絲網護欄
+      g.lineStyle(1, 0x64748b, 0.65);
+      g.lineBetween(0, floorY - 68, width, floorY - 68);
+      for (let x = 20; x < width; x += 28) {
+        g.lineBetween(x, floorY - 68, x, floorY);
+      }
+    } else if (this.areaId === 'infirmary') {
+      // 保健室：潔白醫療隔簾與觀察窗
+      g.fillStyle(secondaryWallColor, 0.92);
+      g.fillRect(0, floorY - 108, width, 108);
+      for (let x = 180; x < width - 120; x += 190) {
+        g.fillStyle(0x0f766e, 0.35);
+        g.fillRect(x, 54, 110, floorY - 64);
+        g.lineStyle(1, 0x34d399, 0.5);
+        g.strokeRect(x, 54, 110, floorY - 64);
+      }
     }
 
     g.fillStyle(floorColor, 1);
@@ -755,14 +1035,14 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     g.lineBetween(2, 0, 2, floorY);
     g.lineBetween(width - 2, 0, width - 2, floorY);
 
-    this.add
-      .text(
+    globalFontManager
+      .createCrispText(
+        this,
         16,
         floorY + 12,
-        `[AREA: ${this.areaDef.id.toUpperCase()}] ${this.areaDef.title} — ${this.areaDef.subtitle}`,
+        `[${this.areaDef.title}] ${this.areaDef.subtitle}`,
+        'secondaryHint',
         {
-          fontFamily: 'monospace',
-          fontSize: '10px',
           color: '#94a3b8',
         }
       )
@@ -771,17 +1051,17 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
 
   private createCombatHitDummy(): void {
     this.dummyGraphics = this.add.graphics().setDepth(9);
-    this.add
-      .text(
+    globalFontManager
+      .createCrispText(
+        this,
         this.dummyTargetRect.centerX,
-        this.dummyTargetRect.top - 10,
-        '[HIT DUMMY]',
+        this.dummyTargetRect.top - 6,
+        '訓練標靶',
+        'secondaryHint',
         {
-          fontFamily: 'monospace',
-          fontSize: '8px',
           color: '#fca5a5',
-          backgroundColor: '#1e1b4b',
-          padding: { x: 2, y: 1 },
+          backgroundColor: '#1e1b4bcc',
+          padding: { x: 3, y: 1 },
         }
       )
       .setOrigin(0.5, 1)

@@ -3,22 +3,26 @@ import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '../config/playerConfig';
 import { getAreaDefinition } from '../data/campusAreas';
 import { DEMO_CHAPTER_TITLE } from '../data/storyScript';
 import { globalAudioSynth } from '../systems/AudioSynthManager';
+import { globalCampusAtmosphere } from '../systems/CampusAtmosphereSystem';
 import { globalRelationshipSystem } from '../systems/CharacterRelationshipSystem';
 import { globalEvidenceSystem } from '../systems/EvidenceSystem';
 import { globalExplorationState } from '../systems/ExplorationStateManager';
+import { globalFontManager } from '../systems/FontManager';
 import { globalGameState } from '../systems/GlobalGameState';
+import { globalNPCInteractionSystem } from '../systems/NPCInteractionSystem';
 import { globalQuestSystem } from '../systems/QuestSystem';
 import { globalSaveManager } from '../systems/SaveManager';
 import { globalStoryState } from '../systems/StoryStateManager';
 
 /**
- * 體驗版主選單場景 (MainMenuScene)
+ * 正式版與體驗版共用主選單場景 (MainMenuScene)
  *
  * 提供：
- * 1. 「開始新遊戲（重新開始體驗版）」與「讀取存檔繼續遊戲」
- * 2. 存檔狀態檢測（若存檔有效顯示上次儲存位置與時間，若損毀或無存檔則清楚提示）
- * 3. 可調整的背景音樂音量 (BGM)、音效音量 (SFX) 與靜音開關
- * 4. 遵循瀏覽器首次互動後才啟動音訊的規範
+ * 1. 「開始新遊戲（重新開始）」與「讀取存檔繼續遊戲」
+ * 2. 全面採用 `FontManager` 清晰繁體中文字體（`Noto Sans TC`，選單文字 15px、次要提示 12px、主標題 26px）
+ * 3. 存檔狀態檢測（若存檔有效顯示上次儲存位置與狀態，若損毀或無存檔則清楚提示）
+ * 4. 可調整的背景音樂音量 (BGM)、音效音量 (SFX) 與靜音開關
+ * 5. 遵循瀏覽器首次互動後才啟動音訊的規範
  */
 export class MainMenuScene extends Phaser.Scene {
   private saveInfoText!: Phaser.GameObjects.Text;
@@ -45,44 +49,49 @@ export class MainMenuScene extends Phaser.Scene {
 
     // 遠景校舍屋頂與高窗剪影
     g.fillStyle(0x0f172a, 1);
-    g.fillRect(60, 96, LOGICAL_WIDTH - 120, 220);
+    g.fillRect(46, 94, LOGICAL_WIDTH - 92, 226);
     g.lineStyle(2, 0x1e293b, 1);
-    g.strokeRect(60, 96, LOGICAL_WIDTH - 120, 220);
+    g.strokeRect(46, 94, LOGICAL_WIDTH - 92, 226);
 
-    // 主標題與章節副標題
-    this.add
-      .text(LOGICAL_WIDTH / 2, 52, '無 名 校 區', {
-        fontFamily: 'monospace',
-        fontSize: '28px',
-        color: '#f8fafc',
-      })
+    // 主標題與章節副標題（採用清晰繁體中文字體）
+    globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2,
+        46,
+        '無 名 校 區',
+        'menuTitle',
+        {
+          color: '#f8fafc',
+        }
+      )
       .setOrigin(0.5);
 
-    this.add
-      .text(
+    globalFontManager
+      .createCrispText(
+        this,
         LOGICAL_WIDTH / 2,
-        82,
-        `UNNAMED CAMPUS — ${DEMO_CHAPTER_TITLE}`,
+        78,
+        `NAMELESS CAMPUS — ${DEMO_CHAPTER_TITLE}`,
+        'secondaryHint',
         {
-          fontFamily: 'monospace',
-          fontSize: '11px',
           color: '#fcd34d',
         }
       )
       .setOrigin(0.5);
 
-    // 2. 開始新遊戲按鈕
-    const startNewBtn = this.add
-      .text(
+    // 2. 開始新遊戲按鈕 (menuItem: 15px)
+    const startNewBtn = globalFontManager
+      .createCrispText(
+        this,
         LOGICAL_WIDTH / 2,
-        132,
-        '▶ 開始新遊戲 (New Demo Session) [Enter / 點擊]',
+        126,
+        '▶ 開始新遊戲 (New Game) [Enter / 點擊]',
+        'menuItem',
         {
-          fontFamily: 'monospace',
-          fontSize: '13px',
           color: '#fef08a',
           backgroundColor: '#1e293b',
-          padding: { x: 14, y: 7 },
+          padding: { x: 14, y: 6 },
         }
       )
       .setOrigin(0.5)
@@ -94,15 +103,20 @@ export class MainMenuScene extends Phaser.Scene {
       this.startNewGame();
     });
 
-    // 3. 讀取存檔繼續遊戲按鈕
-    this.continueBtnText = this.add
-      .text(LOGICAL_WIDTH / 2, 174, '📂 讀取存檔繼續 (Continue Saved Game)', {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: '#93c5fd',
-        backgroundColor: '#0f172a',
-        padding: { x: 14, y: 6 },
-      })
+    // 3. 讀取存檔繼續遊戲按鈕 (menuItem: 15px)
+    this.continueBtnText = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2,
+        168,
+        '📂 讀取存檔繼續 (Continue Saved Game) [C]',
+        'menuItem',
+        {
+          color: '#93c5fd',
+          backgroundColor: '#0f172a',
+          padding: { x: 14, y: 6 },
+        }
+      )
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
@@ -111,11 +125,9 @@ export class MainMenuScene extends Phaser.Scene {
       this.continueFromSave();
     });
 
-    // 存檔詳細狀態列
-    this.saveInfoText = this.add
-      .text(LOGICAL_WIDTH / 2, 204, '', {
-        fontFamily: 'monospace',
-        fontSize: '10px',
+    // 存檔詳細狀態列 (secondaryHint: 12px)
+    this.saveInfoText = globalFontManager
+      .createCrispText(this, LOGICAL_WIDTH / 2, 204, '', 'secondaryHint', {
         color: '#94a3b8',
       })
       .setOrigin(0.5);
@@ -123,16 +135,16 @@ export class MainMenuScene extends Phaser.Scene {
     // 4. 音樂與音效音量控制面板
     this.createAudioControlsPanel();
 
-    // 5. 底部操作與授權說明
-    this.add
-      .text(
+    // 5. 底部操作與授權說明 (secondaryHint: 12px)
+    globalFontManager
+      .createCrispText(
+        this,
         LOGICAL_WIDTH / 2,
         LOGICAL_HEIGHT - 16,
-        '640x360 Pixel Integer Scale | 原創程序化合成 BGM & SFX | 首次點擊或按鍵後啟用音訊',
+        '640×360 整數倍縮放 | 11 處校園場景・NPC 互動・證據與任務系統 | 點擊或按鍵啟用音訊',
+        'secondaryHint',
         {
-          fontFamily: 'monospace',
-          fontSize: '9px',
-          color: '#64748b',
+          color: '#94a3b8',
         }
       )
       .setOrigin(0.5);
@@ -153,42 +165,73 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   private createAudioControlsPanel(): void {
-    this.audioStatusText = this.add
-      .text(LOGICAL_WIDTH / 2, 244, '', {
-        fontFamily: 'monospace',
-        fontSize: '11px',
+    this.audioStatusText = globalFontManager
+      .createCrispText(this, LOGICAL_WIDTH / 2, 240, '', 'secondaryHint', {
         color: '#a7f3d0',
       })
       .setOrigin(0.5);
 
-    const btnStyle = {
-      fontFamily: 'monospace',
-      fontSize: '10px',
+    const btnOverrides = {
       color: '#e2e8f0',
       backgroundColor: '#334155',
-      padding: { x: 7, y: 4 },
+      padding: { x: 8, y: 4 },
     };
 
-    const bgmDown = this.add
-      .text(LOGICAL_WIDTH / 2 - 200, 272, '[BGM -]', btnStyle)
+    const bgmDown = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2 - 205,
+        274,
+        '[BGM -]',
+        'secondaryHint',
+        btnOverrides
+      )
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
-    const bgmUp = this.add
-      .text(LOGICAL_WIDTH / 2 - 130, 272, '[BGM +]', btnStyle)
+    const bgmUp = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2 - 130,
+        274,
+        '[BGM +]',
+        'secondaryHint',
+        btnOverrides
+      )
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
-    const sfxDown = this.add
-      .text(LOGICAL_WIDTH / 2 - 30, 272, '[SFX -]', btnStyle)
+    const sfxDown = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2 - 30,
+        274,
+        '[SFX -]',
+        'secondaryHint',
+        btnOverrides
+      )
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
-    const sfxUp = this.add
-      .text(LOGICAL_WIDTH / 2 + 40, 272, '[SFX +]', btnStyle)
+    const sfxUp = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2 + 45,
+        274,
+        '[SFX +]',
+        'secondaryHint',
+        btnOverrides
+      )
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
-    const muteBtn = this.add
-      .text(LOGICAL_WIDTH / 2 + 155, 272, '[靜音切換 Mute]', btnStyle)
+    const muteBtn = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2 + 160,
+        274,
+        '[靜音切換 Mute]',
+        'secondaryHint',
+        btnOverrides
+      )
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
@@ -243,7 +286,7 @@ export class MainMenuScene extends Phaser.Scene {
       this.continueBtnText.setAlpha(0.5);
     } else {
       this.saveInfoText.setText(
-        `⚠️ 存檔檢查異常 (${loadRes.reason})：已拒絕載入損毀或不相容資料，請開始新遊戲`
+        `⚠️ 存檔檢查異常 (${loadRes.reason})：已拒絕載入損毀資料，請開始新遊戲`
       );
       this.saveInfoText.setColor('#f87171');
       this.continueBtnText.setAlpha(0.5);
@@ -267,6 +310,8 @@ export class MainMenuScene extends Phaser.Scene {
     globalRelationshipSystem.reset();
     globalEvidenceSystem.reset();
     globalQuestSystem.reset();
+    globalCampusAtmosphere.reset();
+    globalNPCInteractionSystem.reset();
     this.scene.launch('UIScene');
     this.scene.start('SchoolGateScene', { spawnId: 'initial_spawn' });
   }

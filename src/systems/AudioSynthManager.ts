@@ -393,6 +393,59 @@ export class AudioSynthManager {
     } catch {}
   }
 
+  /**
+   * 8. 「18.9Hz 第四聲鐘響」心理聲學拍頻轉譯音效 (`playFourthBellChime`)
+   * 依據 AUDIO_DESIGN.md：以 56.7Hz (18.9×3) 與 75.6Hz (18.9×4) 差頻產生 18.9Hz 拍頻脈衝
+   */
+  public playFourthBellChime(): void {
+    const ctx = this.getActiveContext();
+    const vol = this.getEffectiveSfxGain(0.08);
+    if (!ctx || vol <= 0) return;
+
+    try {
+      const now = ctx.currentTime;
+      const beatFreqs = [56.7, 75.6, 220];
+      for (const f of beatFreqs) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = f < 100 ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(f, now);
+        gain.gain.setValueAtTime(vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.78);
+      }
+    } catch {}
+  }
+
+  /**
+   * 9. 陸子軒「逆相抗頻音叉」清澈泛音 (`playCounterPhaseChime`)
+   */
+  public playCounterPhaseChime(): void {
+    const ctx = this.getActiveContext();
+    const vol = this.getEffectiveSfxGain(0.09);
+    if (!ctx || vol <= 0) return;
+
+    try {
+      const now = ctx.currentTime;
+      const freqs = [528, 880];
+      for (const f of freqs) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f, now);
+        gain.gain.setValueAtTime(vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.48);
+      }
+    } catch {}
+  }
+
   // ==========================================================================
   // 內部工具方法
   // ==========================================================================

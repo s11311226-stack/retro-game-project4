@@ -119,13 +119,21 @@ export type AreaId =
   | 'school_gate'
   | 'bulletin_area'
   | 'corridor'
-  | 'classroom';
+  | 'classroom'
+  | 'academic_office'
+  | 'teachers_office'
+  | 'dormitory'
+  | 'old_library'
+  | 'forbidden_archive'
+  | 'rooftop'
+  | 'infirmary';
 
 export type InteractableKind =
   | 'portal'
   | 'examine'
   | 'document'
-  | 'pickup';
+  | 'pickup'
+  | 'npc';
 
 export type UIModalState =
   | 'none'
@@ -197,6 +205,12 @@ export interface InteractableDefinition {
   };
   /** 若一般調查也會記錄線索 */
   clue?: ClueEntryDef;
+  /** 若此物件代表場景中的可對話 NPC，對應的 15 位核心角色 ID */
+  npcId?: CharacterId;
+  /** 調查此物件時直接同步新增的正式版證據 ID (EvidenceSystem) */
+  grantEvidenceId?: string;
+  /** 調查此物件時若為休息床鋪或鐘塔，可觸發時段推進 */
+  triggersTimeCycle?: boolean;
   /** 視覺占位樣式類型 (保留未來替換正式像素素材的介面) */
   visualStyle:
     | 'gate_door'
@@ -207,7 +221,14 @@ export interface InteractableDefinition {
     | 'paper_note'
     | 'poster'
     | 'folder_doc'
-    | 'key_item';
+    | 'key_item'
+    | 'safe_box'
+    | 'bookshelf'
+    | 'bed'
+    | 'medicine_cabinet'
+    | 'bell_tower'
+    | 'microfilm'
+    | 'npc_character';
 }
 
 export interface AreaSpawnPoint {
@@ -249,7 +270,9 @@ export interface InteractionExecutionResult {
   messages: string[];
   document?: DocumentDef;
   acquiredItem?: InventoryItemDef;
-   newlyAddedClue?: ClueEntryDef;
+  newlyAddedClue?: ClueEntryDef;
+  npcId?: CharacterId;
+  grantedEvidenceId?: string;
   portalTransition?: {
     fromAreaId: AreaId;
     targetAreaId: AreaId;
@@ -631,6 +654,88 @@ export interface Phase6ASaveState {
     states: Record<string, QuestRuntimeState>;
     executedOneTimeEventIds: string[];
   };
+  timePhase?: CampusTimePhase;
+  npcCompletedChoiceIds?: string[];
+  investigatedObjectIds?: string[];
+}
+
+// ============================================================================
+// Phase 6B — 日夜時段、NPC 角色互動與對話分支型別定義
+// ============================================================================
+
+export type CampusTimePhase = 'day' | 'dusk' | 'night';
+
+export interface NPCDialogueCondition {
+  requiredEvidenceIds?: string[];
+  requiredFlags?: string[];
+  minAffinity?: number;
+  minTrust?: number;
+  requiredTimePhase?: CampusTimePhase;
+  onlyOnce?: boolean;
+}
+
+export interface NPCDialogueOutcome {
+  oneTimeEventId: string;
+  affinityDelta?: number;
+  trustDelta?: number;
+  corporateAlertDelta?: number;
+  publicExposureDelta?: number;
+  academicCreditsDelta?: number;
+  experimentCorruptionDelta?: number;
+  injuryCountDelta?: number;
+  grantEvidenceId?: string;
+  grantItemId?: string;
+  debunkRedHerring?: {
+    redHerringId: string;
+    counterEvidenceId: string;
+  };
+  startQuestId?: string;
+  completeQuestId?: string;
+  advanceTimePhaseTo?: CampusTimePhase;
+}
+
+export interface NPCDialogueChoiceDef {
+  id: string;
+  label: string;
+  condition?: NPCDialogueCondition;
+  responseLines: DialogueLineDef[];
+  outcome?: NPCDialogueOutcome;
+}
+
+export interface NPCScenePlacementDef {
+  id: string;
+  characterId: CharacterId;
+  areaId: AreaId;
+  x: number;
+  y: number;
+  facing: FacingDirection;
+  palette: {
+    coatColor: number;
+    hairColor: number;
+    accentColor: number;
+    badgeText: string;
+  };
+  greetingLines: DialogueLineDef[];
+  choices: NPCDialogueChoiceDef[];
+}
+
+export interface ActiveNPCDialogueSession {
+  npcId: CharacterId;
+  npcName: string;
+  roleTitle: string;
+  affinity: number;
+  trust: number;
+  tier: RelationshipTier;
+  isAwakened: boolean;
+  lines: DialogueLineDef[];
+  currentLineIndex: number;
+  availableChoices: Array<{
+    choice: NPCDialogueChoiceDef;
+    alreadyCompleted: boolean;
+    unlockedByEvidence: boolean;
+  }>;
+  showingChoices: boolean;
+  outcomeSummary?: string;
 }
 
 /**
