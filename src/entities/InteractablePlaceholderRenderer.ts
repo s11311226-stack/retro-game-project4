@@ -202,6 +202,115 @@ export class InteractablePlaceholderRenderer implements IInteractableVisualAdapt
         g.fillCircle(left + w - 10, top + Math.round(h * 0.55), 3);
         break;
       }
+      case 'corridor_arch': {
+        // 跨棟連通拱門：石造雙柱與方向燈牌
+        g.fillStyle(0x0f172a, 0.92);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(3, 0x38bdf8, 0.95);
+        g.strokeRect(left, top, w, h);
+        g.fillStyle(0x0284c7, 0.35);
+        g.fillRect(left + 6, top + 18, w - 12, h - 18);
+        g.fillStyle(0x38bdf8, 0.9);
+        g.fillRect(left + 8, top + 5, w - 16, 8);
+        break;
+      }
+      case 'staircase': {
+        // 跨樓層垂直樓梯：階梯踏步與扶手
+        g.fillStyle(0x1e293b, 0.95);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(2, 0xfacc15, 0.9);
+        g.strokeRect(left, top, w, h);
+        for (let step = 0; step < 6; step++) {
+          const stepY = top + h - (step + 1) * 12;
+          const stepX = left + 6 + step * 6;
+          const stepW = Math.max(10, w - 12 - step * 6);
+          g.fillStyle(0x475569, 0.95);
+          g.fillRect(stepX, stepY, stepW, 10);
+          g.lineStyle(1, 0x94a3b8, 0.8);
+          g.strokeRect(stepX, stepY, stepW, 10);
+        }
+        break;
+      }
+      case 'classroom_door': {
+        // 教室門：雙色木門、上方採光氣窗與班級牌
+        g.fillStyle(0x5c2d16, 0.96);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(2, 0xb45309, 1);
+        g.strokeRect(left, top, w, h);
+        g.fillStyle(0xbae6fd, 0.45);
+        g.fillRect(left + 8, top + 8, w - 16, 16);
+        g.fillStyle(0x1e3a8a, 0.65);
+        g.fillRect(left + 10, top + 30, w - 20, 24);
+        g.fillStyle(0xfef08a, 1);
+        g.fillCircle(left + w - 9, top + Math.round(h * 0.58), 3);
+        break;
+      }
+      case 'admin_door': {
+        // 行政處室/圖書館門：深胡桃木鑲金邊氣派雙框門
+        g.fillStyle(0x3b1810, 0.98);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(2, 0xf59e0b, 1);
+        g.strokeRect(left, top, w, h);
+        g.strokeRect(left + 5, top + 6, w - 10, h - 10);
+        g.fillStyle(0xfde68a, 0.85);
+        g.fillRect(left + 12, top + 14, w - 24, 10);
+        g.fillStyle(0xfbbf24, 1);
+        g.fillCircle(left + w - 11, top + Math.round(h * 0.55), 3.5);
+        break;
+      }
+      case 'infirmary_door': {
+        // 保健室門：潔白青綠醫療拉門與十字標識
+        g.fillStyle(0x0f292e, 0.96);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(2, 0x2dd4bf, 1);
+        g.strokeRect(left, top, w, h);
+        g.fillStyle(0xecfeff, 0.85);
+        g.fillRect(left + 10, top + 14, w - 20, 26);
+        // 醫療綠十字
+        const cx = left + Math.round(w / 2);
+        const cy = top + 27;
+        g.fillStyle(0x10b981, 1);
+        g.fillRect(cx - 2, cy - 7, 5, 14);
+        g.fillRect(cx - 7, cy - 2, 14, 5);
+        break;
+      }
+      case 'lab_door': {
+        // 實驗室/機房門：冷灰金屬隔音門與圓形觀察窗
+        g.fillStyle(0x1e293b, 0.96);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(2, 0x38bdf8, 0.95);
+        g.strokeRect(left, top, w, h);
+        g.fillStyle(0x0284c7, 0.5);
+        g.fillCircle(left + Math.round(w / 2), top + 26, 10);
+        g.lineStyle(2, 0x94a3b8, 1);
+        g.strokeCircle(left + Math.round(w / 2), top + 26, 10);
+        break;
+      }
+      case 'dorm_door': {
+        // 宿舍/社團活動室門：暖色木門與壁燈徽章
+        g.fillStyle(0x4c1d3d, 0.95);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(2, 0xf472b6, 0.95);
+        g.strokeRect(left, top, w, h);
+        g.fillStyle(0xfef3c7, 0.75);
+        g.fillRect(left + 12, top + 14, w - 24, 18);
+        g.fillStyle(0xfbbf24, 1);
+        g.fillCircle(left + w - 10, top + Math.round(h * 0.55), 3);
+        break;
+      }
+      case 'locked_door': {
+        // 封存禁區/上鎖重門：深紫黑鋼門與醒目鎖具
+        g.fillStyle(0x1a1025, 0.98);
+        g.fillRect(left, top, w, h);
+        g.lineStyle(2, 0xa855f7, 1);
+        g.strokeRect(left, top, w, h);
+        g.lineStyle(1, 0xef4444, 0.8);
+        g.lineBetween(left + 6, top + 10, left + w - 6, top + h - 10);
+        g.lineBetween(left + w - 6, top + 10, left + 6, top + h - 10);
+        g.fillStyle(0xfacc15, 1);
+        g.fillRect(left + Math.round(w / 2) - 6, top + Math.round(h / 2) - 5, 12, 10);
+        break;
+      }
       case 'bulletin_board': {
         const boardH = Math.round(h * 0.65);
         g.fillStyle(0x3f2e21, 1);

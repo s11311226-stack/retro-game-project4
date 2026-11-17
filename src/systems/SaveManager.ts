@@ -4,6 +4,11 @@ import {
   getAllInteractableDefinitions,
   getAreaDefinition,
 } from '../data/campusAreas';
+import {
+  ALL_CORRIDOR_SCENE_IDS,
+  INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE,
+  isCorridorSceneId,
+} from '../data/campusCorridorNetwork';
 import { DEMO_STORY_EVENTS, INITIAL_OBJECTIVE_TEXT } from '../data/storyScript';
 import {
   LEGACY_SAVE_SCHEMA_VERSION_V1,
@@ -13,10 +18,12 @@ import {
   type AudioSettingsData,
   type CampusTimePhase,
   type ClueEntryDef,
+  type CorridorSceneId,
   type FacingDirection,
   type GameSavePayloadV2,
   type InventoryItemDef,
   type Phase6ASaveState,
+  type RoomReturnPosition,
   type SaveLoadResult,
   type StoryEventId,
   type StoryFlagId,
@@ -52,6 +59,7 @@ export interface Phase6AManagersBundle {
 }
 
 const VALID_AREA_IDS = new Set<AreaId>([
+  ...ALL_CORRIDOR_SCENE_IDS,
   'school_gate',
   'bulletin_area',
   'corridor',
@@ -66,6 +74,7 @@ const VALID_AREA_IDS = new Set<AreaId>([
   'classroom_2b',
   'student_activity_room',
   'special_classroom',
+  'science_reserve_4f',
   'rooftop_west',
   'rooftop_equipment',
   'underground_b1',
@@ -198,6 +207,13 @@ export class SaveManager {
         y: area.bounds.floorY,
         facing: playerState.facing === 'left' ? 'left' : 'right',
         stamina: playerState.stamina ?? 100,
+        buildingId: exploration.getCurrentBuildingId(),
+        floorLevel: exploration.getCurrentFloorLevel(),
+        corridorSceneId: exploration.getCurrentCorridorSceneId(),
+        currentRoomSceneId: exploration.getCurrentRoomSceneId(),
+        currentDoorId: exploration.getCurrentDoorId(),
+        roomReturnPosition: exploration.getRoomReturnPosition(),
+        migratedLegacyRoom: false,
       },
       exploration: {
         collectedObjectIds: exploration.getCollectedObjectIds(),
@@ -205,6 +221,10 @@ export class SaveManager {
         clueIds: exploration.getClues().map((c) => c.id),
         unlockedPortalIds: exploration.getUnlockedPortalIds(),
         exploredAreaIds: exploration.getExploredAreaIds(),
+        exploredCorridors: exploration.getExploredCorridors(),
+        exploredRooms: exploration.getExploredRooms(),
+        unlockedDoors: exploration.getUnlockedDoors(),
+        unlockedStairs: exploration.getUnlockedStairs(),
       },
       story: {
         flags: story.getFlags(),
@@ -349,15 +369,44 @@ export class SaveManager {
       .map((id) => allCluesMap.get(id))
       .filter((clue): clue is ClueEntryDef => Boolean(clue));
 
+    // 若為舊版存檔且記錄在室內場景（未包含 R1 走廊返回資訊），透過遷移表安排在該房間所屬公共走廊入口外
+    let targetAreaId: AreaId = saveData.player.areaId;
+    let targetSpawnId: string = saveData.player.spawnId;
+    let targetX: number = saveData.player.x;
+    let targetY: number = saveData.player.y;
+    let targetFacing: FacingDirection = saveData.player.facing;
+
+    if (
+      saveData.player.migratedLegacyRoom &&
+      INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[saveData.player.areaId]
+    ) {
+      const mig = INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[saveData.player.areaId];
+      targetAreaId = mig.corridorSceneId;
+      targetSpawnId = mig.returnSpawnId;
+      targetX = mig.doorX;
+      targetY = 312;
+      targetFacing = 'right';
+    }
+
     exploration.restoreFromSaveData({
-      areaId: saveData.player.areaId,
-      spawnId: saveData.player.spawnId,
+      areaId: targetAreaId,
+      spawnId: targetSpawnId,
       collectedObjectIds: saveData.exploration.collectedObjectIds,
       investigatedObjectIds: saveData.phase6a?.investigatedObjectIds ?? [],
       inventoryItems: restoredItems,
       clues: restoredClues,
       unlockedPortalIds: saveData.exploration.unlockedPortalIds,
       exploredAreaIds: saveData.exploration.exploredAreaIds,
+      exploredCorridors: saveData.exploration.exploredCorridors,
+      exploredRooms: saveData.exploration.exploredRooms,
+      unlockedDoors: saveData.exploration.unlockedDoors,
+      unlockedStairs: saveData.exploration.unlockedStairs,
+      corridorSceneId: saveData.player.corridorSceneId,
+      currentRoomSceneId: saveData.player.migratedLegacyRoom
+        ? null
+        : saveData.player.currentRoomSceneId,
+      currentDoorId: saveData.player.currentDoorId,
+      roomReturnPosition: saveData.player.roomReturnPosition,
     });
 
     story.restoreFromSaveData({
@@ -415,11 +464,11 @@ export class SaveManager {
     }
 
     return {
-      areaId: saveData.player.areaId,
-      spawnId: saveData.player.spawnId,
-      x: saveData.player.x,
-      y: saveData.player.y,
-      facing: saveData.player.facing,
+      areaId: targetAreaId,
+      spawnId: targetSpawnId,
+      x: targetX,
+      y: targetY,
+      facing: targetFacing,
     };
   }
 
@@ -603,6 +652,129 @@ export class SaveManager {
       savedAtIso
     );
 
+    const indoorMigration = INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[areaId];
+    const hasExplicitR1CorridorInfo =
+      typeof player.corridorSceneId === 'string' ||
+      player.migratedLegacyRoom === false;
+    const isPreR1IndoorSave =
+      Boolean(indoorMigration) && !hasExplicitR1CorridorInfo;
+
+    const resolvedCorridorId: CorridorSceneId | null =
+      typeof player.corridorSceneId === 'string' &&
+      isCorridorSceneId(player.corridorSceneId)
+        ? player.corridorSceneId
+        : isCorridorSceneId(areaId)
+          ? areaId
+          : indoorMigration
+            ? indoorMigration.corridorSceneId
+            : null;
+
+    const resolvedRoomId: AreaId | null = indoorMigration ? areaId : null;
+    const resolvedDoorId: string | null =
+      typeof player.currentDoorId === 'string'
+        ? player.currentDoorId
+        : indoorMigration
+          ? indoorMigration.doorId
+          : null;
+
+    const rawReturnPos = player.roomReturnPosition as
+      | Partial<RoomReturnPosition>
+      | undefined;
+    const resolvedReturnPos: RoomReturnPosition | null =
+      rawReturnPos &&
+      typeof rawReturnPos.corridorSceneId === 'string' &&
+      isCorridorSceneId(rawReturnPos.corridorSceneId) &&
+      typeof rawReturnPos.x === 'number'
+        ? {
+            corridorSceneId: rawReturnPos.corridorSceneId,
+            doorId:
+              typeof rawReturnPos.doorId === 'string'
+                ? rawReturnPos.doorId
+                : resolvedDoorId ?? '',
+            x: rawReturnPos.x,
+            y: typeof rawReturnPos.y === 'number' ? rawReturnPos.y : 312,
+            facing: rawReturnPos.facing === 'left' ? 'left' : 'right',
+            spawnId:
+              typeof rawReturnPos.spawnId === 'string'
+                ? rawReturnPos.spawnId
+                : 'from_room',
+          }
+        : indoorMigration
+          ? {
+              corridorSceneId: indoorMigration.corridorSceneId,
+              doorId: indoorMigration.doorId,
+              x: indoorMigration.doorX,
+              y: 312,
+              facing: 'right',
+              spawnId: indoorMigration.returnSpawnId,
+            }
+          : null;
+
+    const rawExploredAreas = Array.isArray(
+      (exploration as Record<string, unknown>).exploredAreaIds
+    )
+      ? (
+          (exploration as Record<string, unknown>).exploredAreaIds as unknown[]
+        ).filter((id): id is string => typeof id === 'string')
+      : [areaId];
+
+    const exploredAreaSet = new Set<string>(rawExploredAreas);
+    exploredAreaSet.add(areaId);
+    if (resolvedCorridorId) {
+      exploredAreaSet.add(resolvedCorridorId);
+    }
+
+    const rawExploredCorridors = Array.isArray(
+      (exploration as Record<string, unknown>).exploredCorridors
+    )
+      ? (
+          (exploration as Record<string, unknown>)
+            .exploredCorridors as unknown[]
+        ).filter(
+          (id): id is CorridorSceneId =>
+            typeof id === 'string' && isCorridorSceneId(id)
+        )
+      : [];
+    const exploredCorridorsSet = new Set<CorridorSceneId>(rawExploredCorridors);
+    for (const id of exploredAreaSet) {
+      if (isCorridorSceneId(id)) {
+        exploredCorridorsSet.add(id);
+      }
+    }
+
+    const rawExploredRooms = Array.isArray(
+      (exploration as Record<string, unknown>).exploredRooms
+    )
+      ? (
+          (exploration as Record<string, unknown>).exploredRooms as unknown[]
+        ).filter(
+          (id): id is AreaId =>
+            typeof id === 'string' &&
+            Boolean(INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[id])
+        )
+      : [];
+    const exploredRoomsSet = new Set<AreaId>(rawExploredRooms);
+    for (const id of exploredAreaSet) {
+      if (INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[id]) {
+        exploredRoomsSet.add(id as AreaId);
+      }
+    }
+
+    const rawUnlockedDoors = Array.isArray(
+      (exploration as Record<string, unknown>).unlockedDoors
+    )
+      ? (
+          (exploration as Record<string, unknown>).unlockedDoors as unknown[]
+        ).filter((id): id is string => typeof id === 'string')
+      : [];
+    const rawUnlockedStairs = Array.isArray(
+      (exploration as Record<string, unknown>).unlockedStairs
+    )
+      ? (
+          (exploration as Record<string, unknown>).unlockedStairs as unknown[]
+        ).filter((id): id is string => typeof id === 'string')
+      : [];
+
     const sanitized: GameSavePayloadV2 = {
       schemaVersion: SAVE_SCHEMA_VERSION,
       savedAtIso,
@@ -616,6 +788,13 @@ export class SaveManager {
           typeof player.stamina === 'number'
             ? Math.max(0, Math.min(100, player.stamina))
             : 100,
+        buildingId: area.building,
+        floorLevel: area.floor,
+        corridorSceneId: resolvedCorridorId,
+        currentRoomSceneId: resolvedRoomId,
+        currentDoorId: resolvedDoorId,
+        roomReturnPosition: resolvedReturnPos,
+        migratedLegacyRoom: isPreR1IndoorSave,
       },
       exploration: {
         collectedObjectIds: exploration.collectedObjectIds.filter(
@@ -626,11 +805,16 @@ export class SaveManager {
         unlockedPortalIds: rawUnlocked.filter(
           (id): id is string => typeof id === 'string'
         ),
-        exploredAreaIds: Array.isArray((exploration as Record<string, unknown>).exploredAreaIds)
-          ? ((exploration as Record<string, unknown>).exploredAreaIds as unknown[]).filter(
-              (id): id is string => typeof id === 'string'
-            )
-          : [areaId],
+        exploredAreaIds: Array.from(exploredAreaSet),
+        exploredCorridors: Array.from(exploredCorridorsSet),
+        exploredRooms: Array.from(exploredRoomsSet),
+        unlockedDoors: Array.from(
+          new Set([
+            ...rawUnlocked.filter((id): id is string => typeof id === 'string'),
+            ...rawUnlockedDoors,
+          ])
+        ),
+        unlockedStairs: rawUnlockedStairs,
       },
       story: {
         flags: validFlags,

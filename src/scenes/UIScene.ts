@@ -2,6 +2,11 @@ import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '../config/playerConfig';
 import { GameEvents, globalEventBus } from '../core/EventBus';
 import { CAMPUS_AREAS } from '../data/campusAreas';
+import {
+  BUILDING_BOUNDARY_CONNECTIONS,
+  getDoorsForCorridor,
+  getStairsForCorridor,
+} from '../data/campusCorridorNetwork';
 import { globalAudioSynth } from '../systems/AudioSynthManager';
 import {
   type AtmosphereLightingProfile,
@@ -23,6 +28,7 @@ import type {
   AreaId,
   CampusTimePhase,
   ClueEntryDef,
+  CorridorSceneId,
   FutureNarrativeMetrics,
   InteractableDefinition,
   InteractionExecutionResult,
@@ -2131,7 +2137,7 @@ export class UIScene extends Phaser.Scene {
 
     children.push(colLeftTitle, colCenterTitle, colRightTitle);
 
-    // 5F 至 1F 樓層定義 (3 棟 × 5 層 = 15 格)
+    // 5F 至 1F 樓層定義 (3 棟 × 5 層 = 15 個公共走廊格，房間作為附屬於走廊的第二層子節點)
     const floorRows: Array<{
       floorLabel: string;
       y: number;
@@ -2142,37 +2148,37 @@ export class UIScene extends Phaser.Scene {
       {
         floorLabel: '5F',
         y: 77,
-        left: { areaId: 'rooftop_west', name: '屋頂西側' },
-        center: { areaId: 'rooftop', name: '屋頂花園' },
-        right: { areaId: 'rooftop_equipment', name: '屋頂設備室' },
+        left: { areaId: 'corridor_left_5f', name: '5F走廊▸屋頂西側' },
+        center: { areaId: 'corridor_center_5f', name: '5F走廊▸鐘塔頂樓' },
+        right: { areaId: 'corridor_right_5f', name: '5F走廊▸屋頂設備' },
       },
       {
         floorLabel: '4F',
         y: 104,
-        left: { areaId: 'special_classroom', name: '特殊教室' },
-        center: { areaId: 'old_library', name: '資料室' },
-        right: { areaId: 'forbidden_archive', name: '學生會室' },
+        left: { areaId: 'corridor_left_4f', name: '4F走廊▸視聽室' },
+        center: { areaId: 'corridor_center_4f', name: '4F走廊▸封存室🔒' },
+        right: { areaId: 'corridor_right_4f', name: '4F走廊▸準備室🔒' },
       },
       {
         floorLabel: '3F',
         y: 131,
-        left: { areaId: 'classroom_2b', name: '2年B班教室' },
-        center: { areaId: 'academic_office', name: '走廊東側' },
-        right: { areaId: 'student_activity_room', name: '學生會活動室' },
+        left: { areaId: 'corridor_left_3f', name: '3F走廊▸2B教室' },
+        center: { areaId: 'corridor_center_3f', name: '3F走廊▸圖書館' },
+        right: { areaId: 'corridor_right_3f', name: '3F走廊▸社團室' },
       },
       {
         floorLabel: '2F',
         y: 158,
-        left: { areaId: 'classroom', name: '2年A班教室' },
-        center: { areaId: 'corridor', name: '走廊西側' },
-        right: { areaId: 'dormitory', name: '理科實驗室' },
+        left: { areaId: 'corridor_left_2f', name: '2F走廊▸2A教室🔒' },
+        center: { areaId: 'corridor_center_2f', name: '2F走廊▸教務處' },
+        right: { areaId: 'corridor_right_2f', name: '2F走廊▸實驗/宿' },
       },
       {
         floorLabel: '1F',
         y: 185,
-        left: { areaId: 'teachers_office', name: '教職員室' },
-        center: { areaId: 'bulletin_area', name: '中央大廳' },
-        right: { areaId: 'infirmary', name: '保健室' },
+        left: { areaId: 'corridor_left_1f', name: '1F走廊▸教職員室' },
+        center: { areaId: 'corridor_center_1f', name: '1F大廳▸公佈欄' },
+        right: { areaId: 'corridor_right_1f', name: '1F走廊▸保健室' },
       },
     ];
 
@@ -2440,14 +2446,81 @@ export class UIScene extends Phaser.Scene {
   private displayMapRoomDetail(areaId: AreaId): void {
     if (!this.mapDetailText) return;
     const def = CAMPUS_AREAS[areaId];
-    const isCurrent = globalExplorationState.getCurrentAreaId() === areaId;
-    const isExplored = globalExplorationState.isAreaExplored(areaId);
-
     if (!def) {
-      this.mapDetailText.setText(`房間情報：${areaId}`);
+      this.mapDetailText.setText(`區域情報：${areaId}`);
       return;
     }
 
+    const currentAreaId = globalExplorationState.getCurrentAreaId();
+    const currentCorridorId = globalExplorationState.getCurrentCorridorSceneId();
+    const currentRoomId = globalExplorationState.getCurrentRoomSceneId();
+
+    // 若此節點為 3×5 走廊格，呈現「第一層：走廊連通與樓梯」＋「第二層：附屬房門與室內探索狀態」
+    if (def.isCorridor) {
+      const corridorId = areaId as CorridorSceneId;
+      const isPlayerInThisCorridor =
+        currentAreaId === corridorId || currentCorridorId === corridorId;
+      const isCorridorExplored =
+        globalExplorationState.isCorridorExplored(corridorId) ||
+        globalExplorationState.isAreaExplored(corridorId);
+
+      const boundary = BUILDING_BOUNDARY_CONNECTIONS[corridorId];
+      const westConnStr = boundary?.west
+        ? `◀西連廊(${CAMPUS_AREAS[boundary.west.targetCorridorId]?.buildingName ?? boundary.west.targetCorridorId})`
+        : '◀西側外牆';
+      const eastConnStr = boundary?.east
+        ? `東連廊(${CAMPUS_AREAS[boundary.east.targetCorridorId]?.buildingName ?? boundary.east.targetCorridorId})▶`
+        : '東側外牆▶';
+
+      const stairs = getStairsForCorridor(corridorId);
+      const stairStr =
+        stairs.length > 0
+          ? ` | 🪜中央梯:${stairs.map((s) => `${s.direction === 'up' ? '▲' : '▼'}${s.targetFloor}F`).join(' ')}`
+          : '';
+
+      const doors = getDoorsForCorridor(corridorId);
+      const doorSummaries = doors.map((d) => {
+        const roomDef = CAMPUS_AREAS[d.destinationSceneId];
+        const roomName = roomDef?.roomName || roomDef?.title || d.promptText;
+        const isUnlocked = globalExplorationState.isDoorUnlocked(d.doorId);
+        const lockBadge = d.isLockedByDefault
+          ? isUnlocked
+            ? '🔓已開鎖'
+            : '🔒上鎖'
+          : '🚪開放';
+        const roomExplored =
+          globalExplorationState.isRoomExplored(d.destinationSceneId) ||
+          globalExplorationState.isAreaExplored(d.destinationSceneId);
+        const expBadge = roomExplored ? '✓已探索' : '未探索';
+        const playerInRoom =
+          currentRoomId === d.destinationSceneId ? '【📍你在房內】' : '';
+        return `${roomName}(x=${d.corridorX},${lockBadge},${expBadge})${playerInRoom}`;
+      });
+
+      const playerWhereTag = isPlayerInThisCorridor
+        ? currentRoomId &&
+          doors.some((d) => d.destinationSceneId === currentRoomId)
+          ? `【📍位於室內：${CAMPUS_AREAS[currentRoomId]?.roomName ?? currentRoomId}】`
+          : '【📍位於此層公共走廊】'
+        : '';
+
+      const layer1Line = `[第一層·走廊] ${def.buildingName} ${def.floorName} (${isCorridorExplored ? '✓走廊已探索' : '???走廊未探索'}) ${playerWhereTag} ｜ ${westConnStr} · ${eastConnStr}${stairStr}`;
+      const layer2Line = `[第二層·房門] ${doorSummaries.length > 0 ? doorSummaries.join(' ； ') : '本層走廊無獨立室內房間（公佈欄與正門大廳）'}`;
+
+      this.mapDetailText.setText(`${layer1Line}\n${layer2Line}`);
+      this.mapDetailText.setColor(
+        isPlayerInThisCorridor
+          ? '#fef08a'
+          : isCorridorExplored
+            ? '#a7f3d0'
+            : '#94a3b8'
+      );
+      return;
+    }
+
+    // 校門或地下 B1~B3 節點
+    const isCurrent = currentAreaId === areaId;
+    const isExplored = globalExplorationState.isAreaExplored(areaId);
     const curTag = isCurrent ? '【📍 你當前所在位置】' : '';
     const expTag = isExplored ? '✓ 已探索' : '??? 未探索區域';
     const locName =
@@ -2459,40 +2532,73 @@ export class UIScene extends Phaser.Scene {
         .map((p) => p.promptAction)
         .join('、') || '無連通通道';
 
-    if (isExplored || isCurrent) {
-      this.mapDetailText.setText(
-        `${curTag}${locName} [${expTag}]\n連通出入口：${portals} | 簡介：${def.subtitle}`
-      );
-      this.mapDetailText.setColor(isCurrent ? '#fef08a' : '#a7f3d0');
-    } else {
-      this.mapDetailText.setText(
-        `${locName} [${expTag}]\n該區域尚未親自前往調查，可經由相鄰樓層走廊或中央棟樓梯探索抵達。`
-      );
-      this.mapDetailText.setColor('#94a3b8');
-    }
+    this.mapDetailText.setText(
+      `${curTag}${locName} [${expTag}]\n連通出入口：${portals} | 簡介：${def.subtitle}`
+    );
+    this.mapDetailText.setColor(
+      isCurrent ? '#fef08a' : isExplored ? '#a7f3d0' : '#94a3b8'
+    );
   }
 
   private refreshMapModal(): void {
     const currentAreaId = globalExplorationState.getCurrentAreaId();
+    const currentCorridorId = globalExplorationState.getCurrentCorridorSceneId();
+    const currentRoomId = globalExplorationState.getCurrentRoomSceneId();
+
     for (const [areaIdStr, item] of this.mapGridItems.entries()) {
       const areaId = areaIdStr as AreaId;
-      const isCurrent = areaId === currentAreaId;
-      const isExplored = globalExplorationState.isAreaExplored(areaId);
       const def = CAMPUS_AREAS[areaId];
-      const roomTitle = def ? def.roomName || def.title : areaId;
+      const isCorridorCell = Boolean(def?.isCorridor);
+
+      const isCurrent = isCorridorCell
+        ? currentAreaId === areaId ||
+          (currentRoomId !== null && currentCorridorId === areaId)
+        : currentAreaId === areaId;
+
+      const isExplored = isCorridorCell
+        ? globalExplorationState.isCorridorExplored(areaId as CorridorSceneId) ||
+          globalExplorationState.isAreaExplored(areaId)
+        : globalExplorationState.isAreaExplored(areaId);
+
+      // 若為走廊格，保留「樓層走廊▸附屬房間」雙層摘要標籤
+      let cellLabel = item.label.text;
+      if (isCorridorCell && def) {
+        const doors = getDoorsForCorridor(areaId as CorridorSceneId);
+        const firstDoor = doors[0];
+        if (firstDoor) {
+          const roomDef = CAMPUS_AREAS[firstDoor.destinationSceneId];
+          const shortRoom =
+            roomDef?.roomName?.slice(0, 5) ||
+            firstDoor.promptText.replace('按 E 進入：', '').slice(0, 5);
+          const lockIcon =
+            firstDoor.isLockedByDefault &&
+            !globalExplorationState.isDoorUnlocked(firstDoor.doorId)
+              ? '🔒'
+              : '';
+          cellLabel = `${def.floor}走廊▸${shortRoom}${lockIcon}`;
+        }
+      } else if (def) {
+        cellLabel = def.roomName || def.title;
+      }
 
       if (isCurrent) {
         item.bg.setFillStyle(0x78350f, 0.95);
         item.bg.setStrokeStyle(2, 0xfacc15);
-        item.label.setText(roomTitle);
+        item.label.setText(cellLabel);
         item.label.setColor('#fef08a');
-        item.pinText.setText('📍你在這');
+        const pinLabel =
+          isCorridorCell && currentRoomId
+            ? '📍房內'
+            : isCorridorCell
+              ? '📍走廊'
+              : '📍在這';
+        item.pinText.setText(pinLabel);
         item.pinText.setColor('#facc15');
         item.pinText.setVisible(true);
       } else if (isExplored) {
         item.bg.setFillStyle(0x064e3b, 0.85);
         item.bg.setStrokeStyle(1, 0x10b981);
-        item.label.setText(roomTitle);
+        item.label.setText(cellLabel);
         item.label.setColor('#a7f3d0');
         item.pinText.setText('✓');
         item.pinText.setColor('#34d399');
@@ -2500,14 +2606,20 @@ export class UIScene extends Phaser.Scene {
       } else {
         item.bg.setFillStyle(0x0f172a, 0.85);
         item.bg.setStrokeStyle(1, 0x334155);
-        item.label.setText(roomTitle);
+        item.label.setText(cellLabel);
         item.label.setColor('#64748b');
         item.pinText.setText('');
         item.pinText.setVisible(false);
       }
     }
 
-    this.displayMapRoomDetail(currentAreaId);
+    const detailTargetAreaId: AreaId =
+      CAMPUS_AREAS[currentAreaId]?.isCorridor ||
+      currentAreaId === 'school_gate' ||
+      currentAreaId.startsWith('underground_')
+        ? currentAreaId
+        : (currentCorridorId ?? currentAreaId);
+    this.displayMapRoomDetail(detailTargetAreaId);
   }
 
   public toggleMapModal(): void {

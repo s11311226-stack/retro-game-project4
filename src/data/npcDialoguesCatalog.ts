@@ -747,6 +747,12 @@ export const NPC_SCENE_PLACEMENTS: Record<string, NPCScenePlacementDef> = {
 export function getNPCPlacementById(
   placementId: string
 ): NPCScenePlacementDef | undefined {
+  if (placementId === 'npc_center_1f_chen_pinyan') {
+    return NPC_SCENE_PLACEMENTS.npc_bulletin_chen_pinyan;
+  }
+  if (placementId === 'npc_center_2f_zhao_jiahao') {
+    return NPC_SCENE_PLACEMENTS.npc_corridor_zhao_jiahao;
+  }
   return NPC_SCENE_PLACEMENTS[placementId];
 }
 

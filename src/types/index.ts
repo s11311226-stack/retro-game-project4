@@ -139,16 +139,34 @@ export interface ICharacterVisualAdapter {
 // Phase 2 — 校園探索區域、互動物件、背包、線索與 UI 狀態型別定義
 // ============================================================================
 
+export type BuildingId = 'left' | 'center' | 'right';
+
 export type BuildingType =
-  | 'left'
-  | 'center'
-  | 'right'
+  | BuildingId
   | 'outdoor'
   | 'underground';
 
 export type FloorLevel = 1 | 2 | 3 | 4 | 5 | 0 | -1 | -2 | -3;
 
+export type CorridorSceneId =
+  | 'corridor_left_1f'
+  | 'corridor_left_2f'
+  | 'corridor_left_3f'
+  | 'corridor_left_4f'
+  | 'corridor_left_5f'
+  | 'corridor_center_1f'
+  | 'corridor_center_2f'
+  | 'corridor_center_3f'
+  | 'corridor_center_4f'
+  | 'corridor_center_5f'
+  | 'corridor_right_1f'
+  | 'corridor_right_2f'
+  | 'corridor_right_3f'
+  | 'corridor_right_4f'
+  | 'corridor_right_5f';
+
 export type AreaId =
+  | CorridorSceneId
   | 'school_gate'
   | 'bulletin_area'
   | 'corridor'
@@ -163,11 +181,83 @@ export type AreaId =
   | 'classroom_2b'
   | 'student_activity_room'
   | 'special_classroom'
+  | 'science_reserve_4f'
   | 'rooftop_west'
   | 'rooftop_equipment'
   | 'underground_b1'
   | 'underground_b2'
   | 'underground_b3';
+
+export interface TransitionSpawnPoint {
+  id: string;
+  x: number;
+  facing: FacingDirection;
+  preserveVelocity?: boolean;
+}
+
+export interface BuildingBoundaryConnection {
+  direction: 'west' | 'east';
+  fromCorridorId: CorridorSceneId;
+  targetCorridorId: CorridorSceneId;
+  building: BuildingId;
+  targetBuilding: BuildingId;
+  floor: 1 | 2 | 3 | 4 | 5;
+  triggerX: number;
+  targetSpawnId: string;
+  targetSpawnX: number;
+  targetFacing: FacingDirection;
+}
+
+export interface CorridorDoorDefinition {
+  doorId: string;
+  destinationSceneId: AreaId;
+  corridorSceneId: CorridorSceneId;
+  building: BuildingId;
+  floor: 1 | 2 | 3 | 4 | 5;
+  corridorX: number;
+  width: number;
+  interactionRadius: number;
+  isLockedByDefault: boolean;
+  requiredItemId?: string;
+  lockedMessage?: string;
+  unlockedMessage?: string;
+  promptText: string;
+  returnSpawnId: string;
+  returnX: number;
+  doorVisualCategory:
+    | 'classroom_door'
+    | 'admin_door'
+    | 'infirmary_door'
+    | 'lab_door'
+    | 'dorm_door'
+    | 'locked_door'
+    | 'gate_door';
+}
+
+export interface StairwayConnectionDefinition {
+  stairId: string;
+  corridorSceneId: CorridorSceneId;
+  floor: 1 | 2 | 3 | 4 | 5;
+  side: 'west_stair' | 'east_stair';
+  x: number;
+  width: number;
+  interactionRadius: number;
+  direction: 'up' | 'down';
+  targetFloor: 1 | 2 | 3 | 4 | 5;
+  targetCorridorId: CorridorSceneId;
+  targetSpawnId: string;
+  targetSpawnX: number;
+  promptText: string;
+}
+
+export interface RoomReturnPosition {
+  corridorSceneId: CorridorSceneId;
+  doorId: string;
+  x: number;
+  y: number;
+  facing: FacingDirection;
+  spawnId: string;
+}
 
 export type InteractableKind =
   | 'portal'
@@ -257,6 +347,14 @@ export interface InteractableDefinition {
   visualStyle:
     | 'gate_door'
     | 'wood_door'
+    | 'corridor_arch'
+    | 'staircase'
+    | 'classroom_door'
+    | 'admin_door'
+    | 'infirmary_door'
+    | 'lab_door'
+    | 'dorm_door'
+    | 'locked_door'
     | 'bulletin_board'
     | 'desk'
     | 'blackboard'
@@ -290,6 +388,12 @@ export interface AreaDefinition {
   floorName: string; // '1F' | '2F' | '3F' | '4F' | '5F' | '地面' | 'B1' | 'B2' | 'B3'
   roomName: string; // '普通教室 3-C' | '穿堂公告欄' | '保健室' etc.
   fullDisplayName: string; // '左棟｜1F｜普通教室 3-C'
+  isCorridor?: boolean;
+  parentCorridorId?: CorridorSceneId;
+  boundaryConnections?: {
+    west?: BuildingBoundaryConnection;
+    east?: BuildingBoundaryConnection;
+  };
   bounds: {
     minX: number;
     maxX: number;
@@ -799,6 +903,13 @@ export interface GameSavePayloadV2 {
     y: number;
     facing: FacingDirection;
     stamina?: number;
+    buildingId?: BuildingType;
+    floorLevel?: FloorLevel;
+    corridorSceneId?: CorridorSceneId | null;
+    currentRoomSceneId?: AreaId | null;
+    currentDoorId?: string | null;
+    roomReturnPosition?: RoomReturnPosition | null;
+    migratedLegacyRoom?: boolean;
   };
   exploration: {
     collectedObjectIds: string[];
@@ -806,6 +917,10 @@ export interface GameSavePayloadV2 {
     clueIds: string[];
     unlockedPortalIds: string[];
     exploredAreaIds?: string[];
+    exploredCorridors?: CorridorSceneId[];
+    exploredRooms?: AreaId[];
+    unlockedDoors?: string[];
+    unlockedStairs?: string[];
   };
   story: {
     flags: StoryFlagId[];

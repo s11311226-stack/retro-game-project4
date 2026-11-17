@@ -303,6 +303,6 @@ describe('Phase 6B — 正式版校園探索、NPC 分支對話、日夜氛圍�
     );
     expect(atmosphereSystem.getCurrentPhase()).toBe('dusk');
     expect(npcSystem.hasCompletedChoice('choice_lu_get_music_box')).toBe(true);
-    expect(Object.keys(CAMPUS_AREAS).length).toBe(19);
+    expect(Object.keys(CAMPUS_AREAS).length).toBe(35);
   });
 });

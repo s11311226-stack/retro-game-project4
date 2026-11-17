@@ -1,11 +1,21 @@
 import { CAMPUS_AREAS, ITEMS_CATALOG, getAreaDefinition } from '../data/campusAreas';
+import {
+  BUILDING_BOUNDARY_CONNECTIONS,
+  CORRIDOR_DOORS_REGISTRY,
+  INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE,
+  isCorridorSceneId,
+} from '../data/campusCorridorNetwork';
 import type {
   AreaId,
+  BuildingType,
   ClueEntryDef,
+  CorridorSceneId,
   FacingDirection,
+  FloorLevel,
   InteractableDefinition,
   InteractionExecutionResult,
   InventoryItemDef,
+  RoomReturnPosition,
   UIModalState,
 } from '../types';
 
@@ -26,10 +36,17 @@ export interface ActiveSpawnLocation {
  * 3. 管理單一主要互動鎖定 (UIModalState)，確保同一時間只允許一個主要互動操作
  * 4. 處理距離判定、按 E 互動與滑鼠點擊選取互動物件
  * 5. 處理門與區域切換及安全落地座標計算（確保切換後角色永遠站在合法地面與邊界內，不卡牆或懸空）
+ * 6. Phase 6B-2 R1：集中管理 3 棟 × 5 層公共走廊與室內房間分離、跨棟邊界轉場、樓梯轉場與室內返回座標
  */
 export class ExplorationStateManager {
   private currentAreaId: AreaId = 'school_gate';
   private currentSpawnId = 'initial_spawn';
+
+  private currentCorridorSceneId: CorridorSceneId | null = null;
+  private currentRoomSceneId: AreaId | null = null;
+  private currentDoorId: string | null = null;
+  private roomReturnPosition: RoomReturnPosition | null = null;
+  private lastCorridorAreaId: AreaId | null = null;
 
   private collectedObjectIds = new Set<string>();
   private investigatedObjectIds = new Set<string>();
@@ -37,6 +54,10 @@ export class ExplorationStateManager {
   private cluesMap = new Map<string, ClueEntryDef>();
   private unlockedPortalIds = new Set<string>();
   private exploredAreaIds = new Set<string>();
+  private exploredCorridors = new Set<CorridorSceneId>();
+  private exploredRooms = new Set<AreaId>();
+  private unlockedDoors = new Set<string>();
+  private unlockedStairs = new Set<string>();
 
   private activeModalState: UIModalState = 'none';
   private selectedObjectId: string | null = null;
@@ -53,6 +74,15 @@ export class ExplorationStateManager {
     this.cluesMap.clear();
     this.unlockedPortalIds.clear();
     this.exploredAreaIds.clear();
+    this.exploredCorridors.clear();
+    this.exploredRooms.clear();
+    this.unlockedDoors.clear();
+    this.unlockedStairs.clear();
+    this.currentCorridorSceneId = null;
+    this.currentRoomSceneId = null;
+    this.currentDoorId = null;
+    this.roomReturnPosition = null;
+    this.lastCorridorAreaId = null;
     this.exploredAreaIds.add(initialAreaId);
     this.activeModalState = 'none';
     this.selectedObjectId = null;
@@ -66,6 +96,65 @@ export class ExplorationStateManager {
 
   public getCurrentAreaId(): AreaId {
     return this.currentAreaId;
+  }
+
+  public getCurrentBuildingId(): BuildingType {
+    return getAreaDefinition(this.currentAreaId).building;
+  }
+
+  public getCurrentFloorLevel(): FloorLevel {
+    return getAreaDefinition(this.currentAreaId).floor;
+  }
+
+  public getCurrentCorridorSceneId(): CorridorSceneId | null {
+    return this.currentCorridorSceneId;
+  }
+
+  public getCurrentRoomSceneId(): AreaId | null {
+    return this.currentRoomSceneId;
+  }
+
+  public getCurrentDoorId(): string | null {
+    return this.currentDoorId;
+  }
+
+  public getRoomReturnPosition(): RoomReturnPosition | null {
+    return this.roomReturnPosition ? { ...this.roomReturnPosition } : null;
+  }
+
+  public setRoomReturnPosition(pos: RoomReturnPosition | null): void {
+    this.roomReturnPosition = pos ? { ...pos } : null;
+  }
+
+  public getExploredCorridors(): CorridorSceneId[] {
+    return Array.from(this.exploredCorridors);
+  }
+
+  public getExploredRooms(): AreaId[] {
+    return Array.from(this.exploredRooms);
+  }
+
+  public getUnlockedDoors(): string[] {
+    return Array.from(this.unlockedDoors);
+  }
+
+  public getUnlockedStairs(): string[] {
+    return Array.from(this.unlockedStairs);
+  }
+
+  public isDoorUnlocked(doorId: string): boolean {
+    const def = CORRIDOR_DOORS_REGISTRY[doorId];
+    if (!def) {
+      return this.unlockedPortalIds.has(doorId) || this.unlockedDoors.has(doorId);
+    }
+    if (!def.isLockedByDefault) return true;
+    if (this.unlockedDoors.has(doorId) || this.unlockedPortalIds.has(doorId)) {
+      return true;
+    }
+    if (def.requiredItemId && this.hasItem(def.requiredItemId)) {
+      return true;
+    }
+    return false;
   }
 
   public getCurrentSpawnLocation(playerColliderWidth = 28): ActiveSpawnLocation {
@@ -87,7 +176,7 @@ export class ExplorationStateManager {
       areaId: this.currentAreaId,
       spawnId: spawn.id,
       x: clampedX,
-      y: area.bounds.floorY, // 強制對齊地面高度，杜絕切換後懸空或掉入地底
+      y: area.bounds.floorY,
       facing: spawn.facing,
     };
   }
@@ -101,16 +190,61 @@ export class ExplorationStateManager {
     this.currentSpawnId =
       spawnId && area.spawns[spawnId] ? spawnId : area.defaultSpawnId;
     this.exploredAreaIds.add(areaId);
+
+    if (isCorridorSceneId(areaId)) {
+      this.exploredCorridors.add(areaId);
+      this.currentCorridorSceneId = areaId;
+      this.currentRoomSceneId = null;
+      this.lastCorridorAreaId = areaId;
+    } else if (areaId === 'corridor' || areaId === 'bulletin_area') {
+      this.lastCorridorAreaId = areaId;
+      if (areaId === 'bulletin_area') {
+        this.exploredCorridors.add('corridor_center_1f');
+      }
+    } else if (INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[areaId]) {
+      const mig = INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[areaId];
+      this.exploredRooms.add(areaId);
+      this.currentRoomSceneId = areaId;
+      this.currentCorridorSceneId = mig.corridorSceneId;
+      this.currentDoorId = mig.doorId;
+      if (!this.roomReturnPosition || this.roomReturnPosition.corridorSceneId !== mig.corridorSceneId) {
+        this.roomReturnPosition = {
+          corridorSceneId: mig.corridorSceneId,
+          doorId: mig.doorId,
+          x: mig.doorX,
+          y: 312,
+          facing: 'right',
+          spawnId: mig.returnSpawnId,
+        };
+      }
+    }
+
     this.selectedObjectId = null;
     return this.getCurrentSpawnLocation();
   }
 
   public isAreaExplored(areaId: AreaId): boolean {
-    return this.exploredAreaIds.has(areaId);
+    if (isCorridorSceneId(areaId)) {
+      return this.exploredCorridors.has(areaId) || this.exploredAreaIds.has(areaId);
+    }
+    return this.exploredAreaIds.has(areaId) || this.exploredRooms.has(areaId);
+  }
+
+  public isCorridorExplored(corridorId: CorridorSceneId): boolean {
+    return this.exploredCorridors.has(corridorId) || this.exploredAreaIds.has(corridorId);
+  }
+
+  public isRoomExplored(roomAreaId: AreaId): boolean {
+    return this.exploredRooms.has(roomAreaId) || this.exploredAreaIds.has(roomAreaId);
   }
 
   public markAreaExplored(areaId: AreaId): void {
     this.exploredAreaIds.add(areaId);
+    if (isCorridorSceneId(areaId)) {
+      this.exploredCorridors.add(areaId);
+    } else if (INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[areaId]) {
+      this.exploredRooms.add(areaId);
+    }
   }
 
   public getExploredAreaIds(): string[] {
@@ -119,7 +253,58 @@ export class ExplorationStateManager {
 
   public restoreExploredAreaIds(ids: string[]): void {
     this.exploredAreaIds.clear();
-    ids.forEach((id) => this.exploredAreaIds.add(id));
+    this.exploredCorridors.clear();
+    this.exploredRooms.clear();
+    for (const id of ids) {
+      this.exploredAreaIds.add(id);
+      if (isCorridorSceneId(id)) {
+        this.exploredCorridors.add(id);
+      } else if (INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[id]) {
+        this.exploredRooms.add(id as AreaId);
+      }
+    }
+  }
+
+  /**
+   * 執行同樓層跨棟邊界轉場（當玩家在公共走廊走到西側或東側建築邊界時觸發）
+   * - 左棟西側、右棟東側為校園外牆，回傳 null 不允許跨出
+   * - 其餘邊界切換至相鄰建築之同樓層公共走廊，絕不跳層
+   */
+  public triggerBoundaryTransition(
+    direction: 'west' | 'east',
+    playerColliderWidth = 28
+  ): InteractionExecutionResult | null {
+    if (!isCorridorSceneId(this.currentAreaId)) {
+      return null;
+    }
+    const conn = BUILDING_BOUNDARY_CONNECTIONS[this.currentAreaId]?.[direction];
+    if (!conn) {
+      return null;
+    }
+
+    const fromAreaId = this.currentAreaId;
+    const spawnLoc = this.setAreaAndSpawn(conn.targetCorridorId, conn.targetSpawnId);
+    const safeSpawn = this.getCurrentSpawnLocation(playerColliderWidth);
+    const targetArea = getAreaDefinition(conn.targetCorridorId);
+
+    this.activeModalState = 'none';
+
+    return {
+      success: true,
+      objectId: `boundary_${fromAreaId}_${direction}_to_${conn.targetCorridorId}`,
+      kind: 'portal',
+      uiState: 'none',
+      title: `跨棟進入：${targetArea.title}`,
+      messages: [`進入【${targetArea.title}】`],
+      portalTransition: {
+        fromAreaId,
+        targetAreaId: spawnLoc.areaId,
+        targetSpawnId: spawnLoc.spawnId,
+        spawnX: safeSpawn.x,
+        spawnY: safeSpawn.y,
+        facing: conn.targetFacing,
+      },
+    };
   }
 
   /**
@@ -132,7 +317,18 @@ export class ExplorationStateManager {
   }
 
   public isObjectCollected(objectId: string): boolean {
-    return this.collectedObjectIds.has(objectId);
+    if (this.collectedObjectIds.has(objectId)) {
+      return true;
+    }
+    // 確保三年丙班鑰匙不論在舊穿堂或新中間棟 1F 公共走廊拾取後都不會重複生成
+    if (
+      (objectId === 'pickup_rusted_classroom_key' ||
+        objectId === 'pickup_center_1f_rusted_key') &&
+      this.hasItem('item_rusted_classroom_key')
+    ) {
+      return true;
+    }
+    return false;
   }
 
   public isObjectInvestigated(objectId: string): boolean {
@@ -199,6 +395,14 @@ export class ExplorationStateManager {
     clues: ClueEntryDef[];
     unlockedPortalIds: string[];
     exploredAreaIds?: string[];
+    exploredCorridors?: CorridorSceneId[];
+    exploredRooms?: AreaId[];
+    unlockedDoors?: string[];
+    unlockedStairs?: string[];
+    corridorSceneId?: CorridorSceneId | null;
+    currentRoomSceneId?: AreaId | null;
+    currentDoorId?: string | null;
+    roomReturnPosition?: RoomReturnPosition | null;
   }): void {
     this.collectedObjectIds = new Set(payload.collectedObjectIds);
     this.investigatedObjectIds = new Set(payload.investigatedObjectIds ?? []);
@@ -211,11 +415,39 @@ export class ExplorationStateManager {
       this.cluesMap.set(clue.id, clue);
     }
     this.unlockedPortalIds = new Set(payload.unlockedPortalIds);
+    this.unlockedDoors = new Set([
+      ...payload.unlockedPortalIds,
+      ...(payload.unlockedDoors ?? []),
+    ]);
+    this.unlockedStairs = new Set(payload.unlockedStairs ?? []);
+
     if (payload.exploredAreaIds && payload.exploredAreaIds.length > 0) {
-      this.exploredAreaIds = new Set(payload.exploredAreaIds);
+      this.restoreExploredAreaIds(payload.exploredAreaIds);
     } else {
-      this.exploredAreaIds.add(payload.areaId);
+      this.exploredAreaIds.clear();
+      this.exploredCorridors.clear();
+      this.exploredRooms.clear();
+      this.markAreaExplored(payload.areaId);
     }
+
+    if (payload.exploredCorridors) {
+      payload.exploredCorridors.forEach((c) => {
+        this.exploredCorridors.add(c);
+        this.exploredAreaIds.add(c);
+      });
+    }
+    if (payload.exploredRooms) {
+      payload.exploredRooms.forEach((r) => {
+        this.exploredRooms.add(r);
+        this.exploredAreaIds.add(r);
+      });
+    }
+
+    this.currentCorridorSceneId = payload.corridorSceneId ?? null;
+    this.currentRoomSceneId = payload.currentRoomSceneId ?? null;
+    this.currentDoorId = payload.currentDoorId ?? null;
+    this.roomReturnPosition = payload.roomReturnPosition ?? null;
+
     this.activeModalState = 'none';
     this.selectedObjectId = null;
     this.lastInteractedObjectId = null;
@@ -325,7 +557,28 @@ export class ExplorationStateManager {
     }
 
     const area = getAreaDefinition(this.currentAreaId);
-    const obj = area.interactables.find((item) => item.id === objectId);
+    let obj = area.interactables.find((item) => item.id === objectId);
+
+    // 向下相容舊版 Phase 2/3/4 測試呼叫 school_gate 的 portal_gate_to_bulletin
+    if (!obj && this.currentAreaId === 'school_gate' && objectId === 'portal_gate_to_bulletin') {
+      obj = {
+        id: 'portal_gate_to_bulletin',
+        areaId: 'school_gate',
+        name: '穿堂公告欄步道',
+        kind: 'portal',
+        x: 610,
+        y: 312,
+        width: 56,
+        height: 92,
+        interactionRadius: 72,
+        promptAction: '前往「公告欄區域」',
+        visualStyle: 'gate_door',
+        portal: {
+          targetAreaId: 'bulletin_area',
+          targetSpawnId: 'from_gate',
+        },
+      };
+    }
 
     if (!obj) {
       return {
@@ -387,6 +640,10 @@ export class ExplorationStateManager {
   private handlePickupInteraction(obj: InteractableDefinition): InteractionExecutionResult {
     const pickupData = obj.pickup!;
     this.collectedObjectIds.add(obj.id);
+    if (pickupData.item.id === 'item_rusted_classroom_key') {
+      this.collectedObjectIds.add('pickup_rusted_classroom_key');
+      this.collectedObjectIds.add('pickup_center_1f_rusted_key');
+    }
     this.investigatedObjectIds.add(obj.id);
     this.inventoryMap.set(pickupData.item.id, pickupData.item);
     this.activeModalState = 'inspect';
@@ -479,6 +736,7 @@ export class ExplorationStateManager {
     if (
       portal.requiredItemId &&
       !this.unlockedPortalIds.has(obj.id) &&
+      !this.unlockedDoors.has(obj.id) &&
       !this.hasItem(portal.requiredItemId)
     ) {
       this.activeModalState = 'inspect';
@@ -498,10 +756,53 @@ export class ExplorationStateManager {
     const fromAreaId = this.currentAreaId;
     if (portal.requiredItemId) {
       this.unlockedPortalIds.add(obj.id);
+      this.unlockedDoors.add(obj.id);
+    }
+
+    if (obj.visualStyle === 'staircase') {
+      this.unlockedStairs.add(obj.id);
+    }
+
+    // 若玩家從公共走廊透過房門進入室內房間，記錄返回位置
+    const doorDef = CORRIDOR_DOORS_REGISTRY[obj.id];
+    if (doorDef) {
+      this.unlockedDoors.add(doorDef.doorId);
+      this.currentCorridorSceneId = doorDef.corridorSceneId;
+      this.currentDoorId = doorDef.doorId;
+      this.currentRoomSceneId = doorDef.destinationSceneId;
+      this.roomReturnPosition = {
+        corridorSceneId: doorDef.corridorSceneId,
+        doorId: doorDef.doorId,
+        x: doorDef.returnX,
+        y: 312,
+        facing: 'right',
+        spawnId: doorDef.returnSpawnId,
+      };
+    }
+
+    let targetAreaId = portal.targetAreaId;
+    let targetSpawnId = portal.targetSpawnId;
+
+    // 若從室內房間離開返回走廊：
+    if (
+      INDOOR_ROOM_TO_CORRIDOR_MIGRATION_TABLE[fromAreaId] &&
+      isCorridorSceneId(targetAreaId)
+    ) {
+      if (this.lastCorridorAreaId === 'corridor') {
+        // 向下相容舊版測試（由舊 corridor 進入 academic_office 再離開回舊 corridor）
+        targetAreaId = 'corridor';
+        targetSpawnId = `from_${fromAreaId.replace('_office', '')}`;
+      } else if (
+        this.roomReturnPosition &&
+        this.roomReturnPosition.corridorSceneId === targetAreaId
+      ) {
+        targetAreaId = this.roomReturnPosition.corridorSceneId;
+        targetSpawnId = this.roomReturnPosition.spawnId;
+      }
     }
 
     // 切換至目標區域與對應安全落地出生點
-    const spawnLoc = this.setAreaAndSpawn(portal.targetAreaId, portal.targetSpawnId);
+    const spawnLoc = this.setAreaAndSpawn(targetAreaId, targetSpawnId);
     const safeSpawn = this.getCurrentSpawnLocation(playerColliderWidth);
 
     // 切換完成後將 UI 狀態恢復為 none (或由過場動畫控制)
@@ -511,7 +812,7 @@ export class ExplorationStateManager {
     if (portal.unlockedMessage) {
       messages.push(portal.unlockedMessage);
     }
-    messages.push(`進入【${getAreaDefinition(portal.targetAreaId).title}】`);
+    messages.push(`進入【${getAreaDefinition(targetAreaId).title}】`);
 
     return {
       success: true,

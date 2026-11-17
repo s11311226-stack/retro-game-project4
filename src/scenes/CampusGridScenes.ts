@@ -60,3 +60,101 @@ export class UndergroundB3Scene extends BaseExplorationScene {
     super('UndergroundB3Scene', 'underground_b3');
   }
 }
+
+export class ScienceReserve4FScene extends BaseExplorationScene {
+  constructor() {
+    super('ScienceReserve4FScene', 'science_reserve_4f');
+  }
+}
+
+// --- Phase 6B-2 R1 三棟 × 五層 15 個獨立公共走廊場景 ---
+
+export class CorridorLeft1FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorLeft1FScene', 'corridor_left_1f');
+  }
+}
+
+export class CorridorLeft2FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorLeft2FScene', 'corridor_left_2f');
+  }
+}
+
+export class CorridorLeft3FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorLeft3FScene', 'corridor_left_3f');
+  }
+}
+
+export class CorridorLeft4FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorLeft4FScene', 'corridor_left_4f');
+  }
+}
+
+export class CorridorLeft5FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorLeft5FScene', 'corridor_left_5f');
+  }
+}
+
+export class CorridorCenter1FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorCenter1FScene', 'corridor_center_1f');
+  }
+}
+
+export class CorridorCenter2FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorCenter2FScene', 'corridor_center_2f');
+  }
+}
+
+export class CorridorCenter3FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorCenter3FScene', 'corridor_center_3f');
+  }
+}
+
+export class CorridorCenter4FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorCenter4FScene', 'corridor_center_4f');
+  }
+}
+
+export class CorridorCenter5FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorCenter5FScene', 'corridor_center_5f');
+  }
+}
+
+export class CorridorRight1FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorRight1FScene', 'corridor_right_1f');
+  }
+}
+
+export class CorridorRight2FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorRight2FScene', 'corridor_right_2f');
+  }
+}
+
+export class CorridorRight3FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorRight3FScene', 'corridor_right_3f');
+  }
+}
+
+export class CorridorRight4FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorRight4FScene', 'corridor_right_4f');
+  }
+}
+
+export class CorridorRight5FScene extends BaseExplorationScene {
+  constructor() {
+    super('CorridorRight5FScene', 'corridor_right_5f');
+  }
+}

@@ -138,16 +138,19 @@ export class StoryStateManager implements IMultiEndingExtensionHooks {
         this.setFlag('flag_admission_notice_read');
         break;
       case 'obj_campus_bulletin_board':
+      case 'obj_center_1f_bulletin_board':
         this.setFlag('flag_roster_mismatch_checked');
         break;
       case 'doc_missing_student_poster':
+      case 'doc_center_1f_missing_poster':
         this.setFlag('flag_missing_poster_found');
         if (!this.hasFlag('flag_anachronistic_file_read')) {
           this.currentObjectiveText =
-            '目標：已發現失蹤學生海報！拾取長椅下的教室鑰匙，前往走廊盡頭的「三年丙班教室」調查校務文件。';
+            '目標：已發現失蹤學生海報！拾取長椅下的教室鑰匙，前往左棟 2F 公共走廊開啟「普通教室（三年丙班）」調查校務文件。';
         }
         break;
       case 'pickup_rusted_classroom_key':
+      case 'pickup_center_1f_rusted_key':
         this.setFlag('flag_classroom_key_obtained');
         break;
       case 'doc_mysterious_school_file':
@@ -196,11 +199,16 @@ export class StoryStateManager implements IMultiEndingExtensionHooks {
       return this.getActiveDialogueState();
     }
 
+    const normalizedId =
+      closedObjectId === 'doc_center_1f_missing_poster'
+        ? 'doc_missing_student_poster'
+        : closedObjectId;
+
     // 優先檢查核心結尾異變事件：只要已發現海報 + 已閱讀教室神祕文件，且剛關閉這兩者之一即可觸發
     const anomalyEvent = DEMO_STORY_EVENTS.evt_anomaly_new_student_observed;
     if (
-      (closedObjectId === 'doc_mysterious_school_file' ||
-        closedObjectId === 'doc_missing_student_poster') &&
+      (normalizedId === 'doc_mysterious_school_file' ||
+        normalizedId === 'doc_missing_student_poster') &&
       this.canTriggerEvent(anomalyEvent)
     ) {
       // 觸發異變時同步提升財閥警戒度預留指標
@@ -211,7 +219,7 @@ export class StoryStateManager implements IMultiEndingExtensionHooks {
     // 檢查其他一般物件關閉後觸發的獨白事件
     for (const event of Object.values(DEMO_STORY_EVENTS)) {
       if (event.id === 'evt_anomaly_new_student_observed') continue;
-      if (event.triggerCondition.triggerAfterObjectClosed !== closedObjectId) {
+      if (event.triggerCondition.triggerAfterObjectClosed !== normalizedId) {
         continue;
       }
       if (this.canTriggerEvent(event)) {

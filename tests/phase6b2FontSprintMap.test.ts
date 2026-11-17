@@ -238,9 +238,9 @@ describe('Phase 6B-2 — 繁體字體清晰度、Shift 奔跑耐力與三棟五�
   // 3. 三棟五樓校園結構 (3 Buildings × 5 Floors Grid) 與地圖連通測試
   // ==========================================================================
   describe('3. 三棟五層校園結構與探索狀態 (Campus 3×5 Grid Architecture)', () => {
-    it('校園總計 19 處合法場景，涵蓋左棟、中間棟、右棟 1F~5F、地面與地下 B1~B3', () => {
+    it('校園總計 35 處合法場景，涵蓋左棟、中間棟、右棟 1F~5F 公共走廊、14 間室內房間、地面與地下 B1~B3', () => {
       const areaKeys = Object.keys(CAMPUS_AREAS) as AreaId[];
-      expect(areaKeys.length).toBe(19);
+      expect(areaKeys.length).toBe(35);
 
       // 檢查建築分類
       const buildings = areaKeys.map((k) => CAMPUS_AREAS[k].building);
@@ -263,76 +263,76 @@ describe('Phase 6B-2 — 繁體字體清晰度、Shift 奔跑耐力與三棟五�
       expect(floors).toContain(-3);
     });
 
-    it('各樓層具備對稱橫向走廊連通 (左棟 <-> 中間棟 <-> 右棟)', () => {
-      // 5F: 屋頂西側 (左) <-> 屋頂 (中) <-> 屋頂設備室 (右)
-      const rWest = CAMPUS_AREAS['rooftop_west'];
-      const rCenter = CAMPUS_AREAS['rooftop'];
-      const rEquip = CAMPUS_AREAS['rooftop_equipment'];
+    it('各樓層具備對稱橫向走廊連通 (左棟走廊 <-> 中間棟走廊 <-> 右棟走廊) 且室內房間掛載於走廊', () => {
+      // 5F: 左棟 5F 走廊 <-> 中間棟 5F 走廊 <-> 右棟 5F 走廊，且各自連接屋頂房間
+      const cLeft5 = CAMPUS_AREAS['corridor_left_5f'];
+      const cCenter5 = CAMPUS_AREAS['corridor_center_5f'];
+      const cRight5 = CAMPUS_AREAS['corridor_right_5f'];
+
+      expect(cLeft5.boundaryConnections?.east?.targetCorridorId).toBe(
+        'corridor_center_5f'
+      );
+      expect(cCenter5.boundaryConnections?.west?.targetCorridorId).toBe(
+        'corridor_left_5f'
+      );
+      expect(cCenter5.boundaryConnections?.east?.targetCorridorId).toBe(
+        'corridor_right_5f'
+      );
+      expect(cRight5.boundaryConnections?.west?.targetCorridorId).toBe(
+        'corridor_center_5f'
+      );
 
       expect(
-        rWest.interactables.some(
-          (i) => i.portal?.targetAreaId === 'rooftop'
-        )
-      ).toBe(true);
-      expect(
-        rCenter.interactables.some(
+        cLeft5.interactables.some(
           (i) => i.portal?.targetAreaId === 'rooftop_west'
         )
       ).toBe(true);
       expect(
-        rCenter.interactables.some(
+        cCenter5.interactables.some((i) => i.portal?.targetAreaId === 'rooftop')
+      ).toBe(true);
+      expect(
+        cRight5.interactables.some(
           (i) => i.portal?.targetAreaId === 'rooftop_equipment'
         )
       ).toBe(true);
-      expect(
-        rEquip.interactables.some(
-          (i) => i.portal?.targetAreaId === 'rooftop'
-        )
-      ).toBe(true);
 
-      // 4F: 特殊教室 (左) <-> 禁書室 (密室) <-> 舊圖書館 (中)
-      const special = CAMPUS_AREAS['special_classroom'];
-      const library = CAMPUS_AREAS['old_library'];
-      const archive = CAMPUS_AREAS['forbidden_archive'];
+      // 4F: 左棟 4F 走廊 (特殊教室) <-> 中間棟 4F 走廊 (禁書室) <-> 右棟 4F 走廊 (理化準備室)
+      const cLeft4 = CAMPUS_AREAS['corridor_left_4f'];
+      const cCenter4 = CAMPUS_AREAS['corridor_center_4f'];
+      const cRight4 = CAMPUS_AREAS['corridor_right_4f'];
       expect(
-        special.interactables.some(
-          (i) => i.portal?.targetAreaId === 'forbidden_archive'
-        )
-      ).toBe(true);
-      expect(
-        archive.interactables.some(
+        cLeft4.interactables.some(
           (i) => i.portal?.targetAreaId === 'special_classroom'
         )
       ).toBe(true);
       expect(
-        library.interactables.some(
+        cCenter4.interactables.some(
           (i) => i.portal?.targetAreaId === 'forbidden_archive'
         )
       ).toBe(true);
-
-      // 3F: 2年B班 (左) <-> 走廊/教務處 (中) <-> 學生活動室 (右)
-      const class2b = CAMPUS_AREAS['classroom_2b'];
-      const acad = CAMPUS_AREAS['academic_office'];
-      const corridor = CAMPUS_AREAS['corridor'];
-      const activity = CAMPUS_AREAS['student_activity_room'];
       expect(
-        class2b.interactables.some(
-          (i) => i.portal?.targetAreaId === 'academic_office'
+        cRight4.interactables.some(
+          (i) => i.portal?.targetAreaId === 'science_reserve_4f'
         )
       ).toBe(true);
+
+      // 3F: 左棟 3F 走廊 (2年B班) <-> 中間棟 3F 走廊 (舊圖書館) <-> 右棟 3F 走廊 (學生活動室)
+      const cLeft3 = CAMPUS_AREAS['corridor_left_3f'];
+      const cCenter3 = CAMPUS_AREAS['corridor_center_3f'];
+      const cRight3 = CAMPUS_AREAS['corridor_right_3f'];
       expect(
-        acad.interactables.some(
+        cLeft3.interactables.some(
           (i) => i.portal?.targetAreaId === 'classroom_2b'
         )
       ).toBe(true);
       expect(
-        corridor.interactables.some(
-          (i) => i.portal?.targetAreaId === 'student_activity_room'
+        cCenter3.interactables.some(
+          (i) => i.portal?.targetAreaId === 'old_library'
         )
       ).toBe(true);
       expect(
-        activity.interactables.some(
-          (i) => i.portal?.targetAreaId === 'corridor'
+        cRight3.interactables.some(
+          (i) => i.portal?.targetAreaId === 'student_activity_room'
         )
       ).toBe(true);
     });

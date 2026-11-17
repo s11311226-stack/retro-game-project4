@@ -38,6 +38,7 @@ export interface SceneTransitionData {
   restoredX?: number;
   restoredY?: number;
   restoredFacing?: FacingDirection;
+  restoredStamina?: number;
 }
 
 /**
@@ -130,6 +131,9 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       DEFAULT_PLAYER_CONFIG
     );
     this.playerController.setSpawnPosition(startX, startY, startFacing);
+    if (typeof this.transitionData?.restoredStamina === 'number') {
+      this.playerController.setStamina(this.transitionData.restoredStamina);
+    }
     this.previousPlayerState = 'idle';
 
     // 5. 初始化角色占位視覺渲染器
@@ -142,7 +146,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     this.createAreaInteractables();
 
     // 7. 若在走廊場景，一併繪製 Phase 1 靜態擊打測試標靶以維持向下相容
-    if (this.areaId === 'corridor') {
+    if (this.areaId === 'corridor' || this.areaId === 'corridor_center_2f') {
       this.createCombatHitDummy();
     }
 
@@ -343,8 +347,41 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     // 根據玩家狀態轉換播放對應動作音效（腳步、跳躍、攻擊、格擋）
     this.triggerMovementAndCombatSfx(snapshot);
 
-    if (this.areaId === 'corridor') {
+    if (this.areaId === 'corridor' || this.areaId === 'corridor_center_2f') {
       this.checkAttackHitboxAgainstTarget(snapshot, clampedDelta);
+    }
+
+    // Phase 6B-2 R1：檢查是否走到公共走廊之西側或東側跨棟邊界
+    if (this.areaDef.isCorridor && this.areaDef.boundaryConnections) {
+      if (
+        snapshot.x <= 42 &&
+        (inputSnapshot.moveLeft || snapshot.facing === 'left') &&
+        this.areaDef.boundaryConnections.west
+      ) {
+        const boundaryRes = globalExplorationState.triggerBoundaryTransition(
+          'west',
+          DEFAULT_PLAYER_CONFIG.collider.width
+        );
+        if (boundaryRes && boundaryRes.portalTransition) {
+          globalAudioSynth.playDoorOpen();
+          this.performScenePortalTransition(boundaryRes);
+          return;
+        }
+      } else if (
+        snapshot.x >= this.areaDef.bounds.maxX - 42 &&
+        (inputSnapshot.moveRight || snapshot.facing === 'right') &&
+        this.areaDef.boundaryConnections.east
+      ) {
+        const boundaryRes = globalExplorationState.triggerBoundaryTransition(
+          'east',
+          DEFAULT_PLAYER_CONFIG.collider.width
+        );
+        if (boundaryRes && boundaryRes.portalTransition) {
+          globalAudioSynth.playDoorOpen();
+          this.performScenePortalTransition(boundaryRes);
+          return;
+        }
+      }
     }
 
     // 同步角色視覺、互動物件提示與攝影機位置
@@ -404,6 +441,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
         x: snap.x,
         y: snap.y,
         facing: snap.facing,
+        stamina: snap.stamina,
       },
       globalAudioSynth.getSettings()
     );
@@ -451,6 +489,7 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       restoredX: restoredLoc.x,
       restoredY: restoredLoc.y,
       restoredFacing: restoredLoc.facing,
+      restoredStamina: loadRes.data.player.stamina,
     });
   }
 
@@ -916,7 +955,64 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     g.fillStyle(skyOrWallColor, 1);
     g.fillRect(0, 0, width, height);
 
-    if (this.areaId === 'school_gate') {
+    if (this.areaDef.isCorridor) {
+      // 3×5 公共走廊：護牆板、高窗、結構立柱、天花板吸頂燈與東西邊界連廊標示
+      g.fillStyle(secondaryWallColor, 0.92);
+      g.fillRect(0, floorY - 98, width, 98);
+      g.lineStyle(2, accentColor, 0.7);
+      g.lineBetween(0, floorY - 98, width, floorY - 98);
+
+      // 天花板橫樑
+      g.fillStyle(0x0f172a, 0.9);
+      g.fillRect(0, 20, width, 16);
+      g.lineStyle(1, accentColor, 0.45);
+      g.lineBetween(0, 36, width, 36);
+
+      // 走廊結構立柱與採光高窗（避開門與樓梯主要軸線，營造 1680px 長廊透視感）
+      for (let x = 180; x < width - 160; x += 260) {
+        g.fillStyle(0x0f172a, 0.85);
+        g.fillRect(x - 10, 36, 20, floorY - 36);
+        g.lineStyle(1, 0x475569, 0.75);
+        g.strokeRect(x - 10, 36, 20, floorY - 36);
+
+        // 走廊高窗
+        g.fillStyle(0x1e3a5f, 0.35);
+        g.fillRect(x + 48, 56, 110, 74);
+        g.lineStyle(2, 0x334155, 0.9);
+        g.strokeRect(x + 48, 56, 110, 74);
+        g.lineStyle(1, 0x64748b, 0.5);
+        g.lineBetween(x + 103, 56, x + 103, 130);
+        g.lineBetween(x + 48, 93, x + 158, 93);
+
+        // 吸頂照明燈
+        g.fillStyle(0xfef08a, 0.45);
+        g.fillRect(x + 84, 36, 38, 5);
+      }
+
+      // 走廊樓層棟別銘牌
+      const bldgLabel =
+        this.areaDef.building === 'left'
+          ? '左棟教學樓'
+          : this.areaDef.building === 'center'
+            ? '中間棟本館'
+            : '右棟實驗與宿舍樓';
+      const floorLabel = `${this.areaDef.floor ?? '1F'} 公共走廊`;
+      globalFontManager
+        .createCrispText(
+          this,
+          width / 2,
+          50,
+          `【 ${bldgLabel} · ${floorLabel} 】`,
+          'secondaryHint',
+          {
+            color: '#e2e8f0',
+            backgroundColor: '#0f172ad9',
+            padding: { x: 8, y: 3 },
+          }
+        )
+        .setOrigin(0.5, 0.5)
+        .setDepth(5);
+    } else if (this.areaId === 'school_gate') {
       g.fillStyle(secondaryWallColor, 0.8);
       g.fillRect(40, 120, width - 80, floorY - 120);
       g.lineStyle(2, 0x334155, 0.9);
@@ -1024,6 +1120,16 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
         g.lineStyle(1, 0x34d399, 0.5);
         g.strokeRect(x, 54, 110, floorY - 64);
       }
+    } else if (this.areaId === 'science_reserve_4f') {
+      // 4F 理化實驗準備室：實驗藥品櫃與通風櫥窗
+      g.fillStyle(secondaryWallColor, 0.92);
+      g.fillRect(0, floorY - 106, width, 106);
+      for (let x = 160; x < width - 120; x += 210) {
+        g.fillStyle(0x134e4a, 0.45);
+        g.fillRect(x, 52, 120, floorY - 62);
+        g.lineStyle(1.5, 0x2dd4bf, 0.65);
+        g.strokeRect(x, 52, 120, floorY - 62);
+      }
     }
 
     g.fillStyle(floorColor, 1);
@@ -1031,9 +1137,26 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
     g.lineStyle(2, accentColor, 0.75);
     g.lineBetween(0, floorY, width, floorY);
 
-    g.lineStyle(3, 0xef4444, 0.75);
-    g.lineBetween(2, 0, 2, floorY);
-    g.lineBetween(width - 2, 0, width - 2, floorY);
+    // 東西邊界視覺：若有跨棟連廊則繪製金色連通導引邊框，若為外牆則繪製封閉厚實牆柱
+    if (this.areaDef.boundaryConnections?.west) {
+      g.lineStyle(4, 0x38bdf8, 0.7);
+      g.lineBetween(3, 40, 3, floorY);
+    } else {
+      g.fillStyle(0x1e293b, 0.95);
+      g.fillRect(0, 0, 14, floorY);
+      g.lineStyle(3, 0xef4444, 0.75);
+      g.lineBetween(14, 0, 14, floorY);
+    }
+
+    if (this.areaDef.boundaryConnections?.east) {
+      g.lineStyle(4, 0x38bdf8, 0.7);
+      g.lineBetween(width - 3, 40, width - 3, floorY);
+    } else {
+      g.fillStyle(0x1e293b, 0.95);
+      g.fillRect(width - 14, 0, 14, floorY);
+      g.lineStyle(3, 0xef4444, 0.75);
+      g.lineBetween(width - 14, 0, width - 14, floorY);
+    }
 
     globalFontManager
       .createCrispText(
