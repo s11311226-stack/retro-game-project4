@@ -182,14 +182,16 @@ export class AudioSynthManager {
   // ==========================================================================
 
   /**
-   * 1. 腳步音效 (`playFootstep`) — 附帶節流間隔避免每幀重複觸發
+   * 1. 腳步音效 (`playFootstep`) — 附帶節流間隔避免每幀重複觸發，支援一般行走與奔跑不同節奏與音量
    */
-  public playFootstep(nowMs: number = Date.now()): void {
-    if (nowMs - this.lastFootstepAtMs < 250) return;
+  public playFootstep(nowMs: number = Date.now(), isRunning = false): void {
+    const minInterval = isRunning ? 160 : 250;
+    if (nowMs - this.lastFootstepAtMs < minInterval) return;
     this.lastFootstepAtMs = nowMs;
 
     const ctx = this.getActiveContext();
-    const vol = this.getEffectiveSfxGain(0.06);
+    const baseGain = isRunning ? 0.09 : 0.06;
+    const vol = this.getEffectiveSfxGain(baseGain);
     if (!ctx || vol <= 0) return;
 
     try {
@@ -197,8 +199,10 @@ export class AudioSynthManager {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(135, now);
-      osc.frequency.exponentialRampToValueAtTime(65, now + 0.045);
+      const startFreq = isRunning ? 160 : 135;
+      const endFreq = isRunning ? 75 : 65;
+      osc.frequency.setValueAtTime(startFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.045);
 
       gain.gain.setValueAtTime(vol, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);

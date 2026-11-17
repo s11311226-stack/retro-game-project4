@@ -36,6 +36,7 @@ export class ExplorationStateManager {
   private inventoryMap = new Map<string, InventoryItemDef>();
   private cluesMap = new Map<string, ClueEntryDef>();
   private unlockedPortalIds = new Set<string>();
+  private exploredAreaIds = new Set<string>();
 
   private activeModalState: UIModalState = 'none';
   private selectedObjectId: string | null = null;
@@ -51,6 +52,8 @@ export class ExplorationStateManager {
     this.inventoryMap.clear();
     this.cluesMap.clear();
     this.unlockedPortalIds.clear();
+    this.exploredAreaIds.clear();
+    this.exploredAreaIds.add(initialAreaId);
     this.activeModalState = 'none';
     this.selectedObjectId = null;
     this.lastInteractedObjectId = null;
@@ -97,8 +100,26 @@ export class ExplorationStateManager {
     this.currentAreaId = areaId;
     this.currentSpawnId =
       spawnId && area.spawns[spawnId] ? spawnId : area.defaultSpawnId;
+    this.exploredAreaIds.add(areaId);
     this.selectedObjectId = null;
     return this.getCurrentSpawnLocation();
+  }
+
+  public isAreaExplored(areaId: AreaId): boolean {
+    return this.exploredAreaIds.has(areaId);
+  }
+
+  public markAreaExplored(areaId: AreaId): void {
+    this.exploredAreaIds.add(areaId);
+  }
+
+  public getExploredAreaIds(): string[] {
+    return Array.from(this.exploredAreaIds);
+  }
+
+  public restoreExploredAreaIds(ids: string[]): void {
+    this.exploredAreaIds.clear();
+    ids.forEach((id) => this.exploredAreaIds.add(id));
   }
 
   /**
@@ -177,6 +198,7 @@ export class ExplorationStateManager {
     inventoryItems: InventoryItemDef[];
     clues: ClueEntryDef[];
     unlockedPortalIds: string[];
+    exploredAreaIds?: string[];
   }): void {
     this.collectedObjectIds = new Set(payload.collectedObjectIds);
     this.investigatedObjectIds = new Set(payload.investigatedObjectIds ?? []);
@@ -189,6 +211,11 @@ export class ExplorationStateManager {
       this.cluesMap.set(clue.id, clue);
     }
     this.unlockedPortalIds = new Set(payload.unlockedPortalIds);
+    if (payload.exploredAreaIds && payload.exploredAreaIds.length > 0) {
+      this.exploredAreaIds = new Set(payload.exploredAreaIds);
+    } else {
+      this.exploredAreaIds.add(payload.areaId);
+    }
     this.activeModalState = 'none';
     this.selectedObjectId = null;
     this.lastInteractedObjectId = null;

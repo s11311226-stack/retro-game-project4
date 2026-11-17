@@ -151,6 +151,7 @@ export class InputManager {
   public consumeSnapshot(): InputSnapshot {
     const moveLeft = this.isAnyHeld(this.bindings.moveLeft);
     const moveRight = this.isAnyHeld(this.bindings.moveRight);
+    const runHeld = this.isAnyHeld(this.bindings.run ?? ['ShiftLeft', 'ShiftRight']);
     const jumpJustPressed = this.isAnyJustPressed(this.bindings.jump);
     const attackJustPressed =
       this.isAnyJustPressed(this.bindings.attack) ||
@@ -160,6 +161,7 @@ export class InputManager {
       (this.bindings.enableMouseCombat && this.mouseRightHeld);
     const interactJustPressed = this.isAnyJustPressed(this.bindings.interact);
     const inventoryJustPressed = this.isAnyJustPressed(this.bindings.inventory);
+    const mapJustPressed = this.isAnyJustPressed(this.bindings.map ?? ['KeyM']);
     const pauseJustPressed = this.isAnyJustPressed(this.bindings.pause);
 
     // 消耗單幀觸發狀態
@@ -169,11 +171,13 @@ export class InputManager {
     return {
       moveLeft,
       moveRight,
+      runHeld,
       jumpJustPressed,
       attackJustPressed,
       blockHeld,
       interactJustPressed,
       inventoryJustPressed,
+      mapJustPressed,
       pauseJustPressed,
     };
   }

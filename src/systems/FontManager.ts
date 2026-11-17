@@ -152,15 +152,22 @@ export class FontManager {
   }
 
   /**
-   * 預先觸發瀏覽器字體載入與測量流程
+   * 預先觸發瀏覽器字體載入與測量流程，確保 Noto Sans TC 於文字建立前完成載入
    */
   public async ensureFontsReady(): Promise<boolean> {
     if (this.fontLoaded) return true;
     try {
       if (typeof document !== 'undefined' && 'fonts' in document) {
         await Promise.race([
-          document.fonts.ready,
-          new Promise((resolve) => setTimeout(resolve, 600)),
+          Promise.allSettled([
+            document.fonts.load('12px "Noto Sans TC"'),
+            document.fonts.load('16px "Noto Sans TC"'),
+            document.fonts.load('bold 16px "Noto Sans TC"'),
+            document.fonts.load('17px "Noto Sans TC"'),
+            document.fonts.load('26px "Noto Sans TC"'),
+            document.fonts.ready,
+          ]),
+          new Promise((resolve) => setTimeout(resolve, 1200)),
         ]);
       }
       this.fontLoaded = true;
@@ -169,6 +176,34 @@ export class FontManager {
       this.fontLoaded = true;
       return false;
     }
+  }
+
+  /**
+   * 取得字體清晰度展示畫面 (Font Showcase) 測試資料
+   */
+  public getShowcaseData(): {
+    cjkRareAndComplex: string;
+    sampleStorySentence: string;
+    punctuationAndNumbers: string;
+    contrastPresets: Array<{ label: string; size: string; preset: TypographyPresetKey }>;
+  } {
+    return {
+      cjkRareAndComplex:
+        '體議鐘學廳藥難聽讀護處階實驗秘密靈魂霧警濁鑑響隱藏迴廊檔案席位研發順從遺忘',
+      sampleStorySentence:
+        '1968年白川財閥以私人教育慈善基金名義購置後山校舍，表面興辦私立高中，地底暗中挖掘三層秘密設施進行「回聲搖籃計畫」，黃昏第四聲鐘響共振18.9Hz次聲波，使師生對失蹤者產生群體遺忘。',
+      punctuationAndNumbers:
+        '0123456789 ＋－×÷＝％ ！？。，、；：「」『』（）《》【】——……',
+      contrastPresets: [
+        { label: '標題大字 (26px)', size: '26px', preset: 'mainTitle' },
+        { label: '角色名稱 (17px)', size: '17px', preset: 'speakerName' },
+        { label: '對白正文 (16px)', size: '16px', preset: 'dialogueBody' },
+        { label: '選單項目 (16px)', size: '16px', preset: 'menuItem' },
+        { label: '文件內容 (16px)', size: '16px', preset: 'documentBody' },
+        { label: '重要提示 (16px)', size: '16px', preset: 'importantPrompt' },
+        { label: '次要提示 (12px)', size: '12px', preset: 'secondaryHint' },
+      ],
+    };
   }
 
   /**

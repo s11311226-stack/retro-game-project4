@@ -11,6 +11,16 @@ import {
   RooftopScene,
   TeachersOfficeScene,
 } from '../scenes/CampusAreaScenes';
+import {
+  Classroom2BScene,
+  RooftopEquipmentScene,
+  RooftopWestScene,
+  SpecialClassroomScene,
+  StudentActivityRoomScene,
+  UndergroundB1Scene,
+  UndergroundB2Scene,
+  UndergroundB3Scene,
+} from '../scenes/CampusGridScenes';
 import { ClassroomScene } from '../scenes/ClassroomScene';
 import { CorridorScene } from '../scenes/CorridorScene';
 import { GameScene } from '../scenes/GameScene';
@@ -52,6 +62,14 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     ForbiddenArchiveScene,
     RooftopScene,
     InfirmaryScene,
+    Classroom2BScene,
+    StudentActivityRoomScene,
+    SpecialClassroomScene,
+    RooftopWestScene,
+    RooftopEquipmentScene,
+    UndergroundB1Scene,
+    UndergroundB2Scene,
+    UndergroundB3Scene,
     GameScene,
     UIScene,
   ],

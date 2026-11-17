@@ -63,6 +63,14 @@ const VALID_AREA_IDS = new Set<AreaId>([
   'forbidden_archive',
   'rooftop',
   'infirmary',
+  'classroom_2b',
+  'student_activity_room',
+  'special_classroom',
+  'rooftop_west',
+  'rooftop_equipment',
+  'underground_b1',
+  'underground_b2',
+  'underground_b3',
 ]);
 
 const VALID_STORY_FLAGS = new Set<StoryFlagId>([
@@ -157,7 +165,12 @@ export class SaveManager {
   public saveCurrentGame(
     exploration: ExplorationStateManager,
     story: StoryStateManager,
-    playerState: { x: number; y: number; facing: FacingDirection },
+    playerState: {
+      x: number;
+      y: number;
+      facing: FacingDirection;
+      stamina?: number;
+    },
     audioSettings?: AudioSettingsData,
     phase6aManagers?: Phase6AManagersBundle
   ): GameSavePayloadV2 {
@@ -184,12 +197,14 @@ export class SaveManager {
         x: clampedX,
         y: area.bounds.floorY,
         facing: playerState.facing === 'left' ? 'left' : 'right',
+        stamina: playerState.stamina ?? 100,
       },
       exploration: {
         collectedObjectIds: exploration.getCollectedObjectIds(),
         inventoryItemIds: exploration.getInventoryItems().map((i) => i.id),
         clueIds: exploration.getClues().map((c) => c.id),
         unlockedPortalIds: exploration.getUnlockedPortalIds(),
+        exploredAreaIds: exploration.getExploredAreaIds(),
       },
       story: {
         flags: story.getFlags(),
@@ -342,6 +357,7 @@ export class SaveManager {
       inventoryItems: restoredItems,
       clues: restoredClues,
       unlockedPortalIds: saveData.exploration.unlockedPortalIds,
+      exploredAreaIds: saveData.exploration.exploredAreaIds,
     });
 
     story.restoreFromSaveData({
@@ -596,6 +612,10 @@ export class SaveManager {
         x: safeX,
         y: area.bounds.floorY,
         facing: player.facing === 'left' ? 'left' : 'right',
+        stamina:
+          typeof player.stamina === 'number'
+            ? Math.max(0, Math.min(100, player.stamina))
+            : 100,
       },
       exploration: {
         collectedObjectIds: exploration.collectedObjectIds.filter(
@@ -606,6 +626,11 @@ export class SaveManager {
         unlockedPortalIds: rawUnlocked.filter(
           (id): id is string => typeof id === 'string'
         ),
+        exploredAreaIds: Array.isArray((exploration as Record<string, unknown>).exploredAreaIds)
+          ? ((exploration as Record<string, unknown>).exploredAreaIds as unknown[]).filter(
+              (id): id is string => typeof id === 'string'
+            )
+          : [areaId],
       },
       story: {
         flags: validFlags,

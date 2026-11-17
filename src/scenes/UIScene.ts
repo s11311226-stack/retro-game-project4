@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { LOGICAL_HEIGHT, LOGICAL_WIDTH } from '../config/playerConfig';
 import { GameEvents, globalEventBus } from '../core/EventBus';
+import { CAMPUS_AREAS } from '../data/campusAreas';
 import { globalAudioSynth } from '../systems/AudioSynthManager';
 import {
   type AtmosphereLightingProfile,
@@ -8,6 +9,7 @@ import {
 } from '../systems/CampusAtmosphereSystem';
 import { globalRelationshipSystem } from '../systems/CharacterRelationshipSystem';
 import { globalEvidenceSystem } from '../systems/EvidenceSystem';
+import { globalExplorationState } from '../systems/ExplorationStateManager';
 import { globalFontManager } from '../systems/FontManager';
 import { globalGameState } from '../systems/GlobalGameState';
 import { globalQuestSystem } from '../systems/QuestSystem';
@@ -18,6 +20,7 @@ import {
 import type {
   ActiveNPCDialogueSession,
   AreaDefinition,
+  AreaId,
   CampusTimePhase,
   ClueEntryDef,
   FutureNarrativeMetrics,
@@ -95,6 +98,25 @@ export class UIScene extends Phaser.Scene {
   private endingModal!: Phaser.GameObjects.Container;
   private endingSummaryText!: Phaser.GameObjects.Text;
 
+  // 地圖導覽視窗 (3棟5層+地下室)
+  private mapButtonText!: Phaser.GameObjects.Text;
+  private mapModal!: Phaser.GameObjects.Container;
+  private mapDetailText!: Phaser.GameObjects.Text;
+  private mapGridItems: Map<
+    string,
+    {
+      bg: Phaser.GameObjects.Rectangle;
+      label: Phaser.GameObjects.Text;
+      pinText: Phaser.GameObjects.Text;
+    }
+  > = new Map();
+
+  // 字體清晰度檢測展示視窗
+  private fontShowcaseModal!: Phaser.GameObjects.Container;
+
+  // HUD 耐力條視覺圖元
+  private staminaBarGraphics!: Phaser.GameObjects.Graphics;
+
   private anomalyFlickerOverlay!: Phaser.GameObjects.Rectangle;
 
   private transitionBanner!: Phaser.GameObjects.Container;
@@ -127,7 +149,7 @@ export class UIScene extends Phaser.Scene {
     this.timePhaseBadgeText = globalFontManager
       .createCrispText(
         this,
-        LOGICAL_WIDTH - 178,
+        LOGICAL_WIDTH - 238,
         4,
         this.formatTimePhaseBadge(globalCampusAtmosphere.getCurrentPhase()),
         'secondaryHint',
@@ -146,13 +168,37 @@ export class UIScene extends Phaser.Scene {
       globalEventBus.emit(GameEvents.UI_REQUEST_CYCLE_TIME_PHASE, {});
     });
 
+    // 地圖快捷按鈕 (secondaryHint: 12px)
+    this.mapButtonText = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH - 126,
+        4,
+        '🗺️ 地圖 [M]',
+        'secondaryHint',
+        {
+          color: '#38bdf8',
+          backgroundColor: '#0c223add',
+          padding: { x: 5, y: 2 },
+          fontStyle: 'bold',
+        }
+      )
+      .setOrigin(1, 0)
+      .setScrollFactor(0)
+      .setDepth(100)
+      .setInteractive({ useHandCursor: true });
+
+    this.mapButtonText.on('pointerdown', () => {
+      this.toggleMapModal();
+    });
+
     // 右上角當前 UI 狀態指標 + 調查中心快捷按鈕 (secondaryHint: 12px)
     this.modalStateBadge = globalFontManager
       .createCrispText(
         this,
         LOGICAL_WIDTH - 8,
         4,
-        '🎒 調查中心 [按 I / Tab]',
+        '🎒 調查中心 [I]',
         'secondaryHint',
         {
           color: '#a7f3d0',
@@ -176,7 +222,7 @@ export class UIScene extends Phaser.Scene {
         this,
         8,
         24,
-        '移動:[A/D] 跳躍:[W/Space] 互動:[E/點擊] 調查中心:[I/Tab] 攻擊:[J] 格擋:[K] 暫停/存檔:[P/Esc]',
+        '移動:[A/D] 奔跑:[Shift] 跳躍:[Space] 攻擊:[左鍵/J] 格擋:[右鍵/K] 互動:[E] 地圖:[M] 調查:[I] 選單:[Esc]',
         'secondaryHint',
         {
           color: '#cbd5e1',
@@ -186,6 +232,9 @@ export class UIScene extends Phaser.Scene {
       )
       .setScrollFactor(0)
       .setDepth(100);
+
+    // 耐力條視覺圖元
+    this.staminaBarGraphics = this.add.graphics().setScrollFactor(0).setDepth(101);
 
     // 3. 角色即時物理與 8 大核心變數摘要面板 (secondaryHint: 12px)
     this.statusText = globalFontManager
@@ -269,6 +318,8 @@ export class UIScene extends Phaser.Scene {
     this.createEndingModal();
     this.createTransitionBanner();
     this.createPauseOverlay();
+    this.createMapModal();
+    this.createFontShowcaseModal();
 
     // 綁定鍵盤數字鍵 (1~4, 0) 供 NPC 對話選項快速選擇，以及 W/S/上下鍵供長文翻頁
     this.setupKeyboardShortcuts();
@@ -278,9 +329,17 @@ export class UIScene extends Phaser.Scene {
       globalEventBus.on<{ area: AreaDefinition }>(
         GameEvents.AREA_CHANGED,
         ({ area }) => {
+          const loc =
+            area.fullDisplayName ||
+            (area.buildingName && area.floorName
+              ? `「${area.buildingName}｜${area.floorName}｜${area.roomName || area.title}」`
+              : area.title);
           this.areaHeaderText.setText(
-            `📍 ${area.title} | ${globalStoryState.getChapterTitle()}`
+            `📍 ${loc} | ${globalStoryState.getChapterTitle()}`
           );
+          if (this.mapModal && this.mapModal.visible) {
+            this.refreshMapModal();
+          }
         }
       ),
       globalEventBus.on<{
@@ -382,6 +441,39 @@ export class UIScene extends Phaser.Scene {
 
   private setupKeyboardShortcuts(): void {
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
+      // 字體展示視窗關閉 (ESC 或 F)
+      if (
+        this.fontShowcaseModal &&
+        this.fontShowcaseModal.visible &&
+        (event.key === 'Escape' || event.key === 'f' || event.key === 'F')
+      ) {
+        this.closeFontShowcaseModal();
+        return;
+      }
+
+      // 地圖導覽視窗關閉或開啟 (按 M 或 ESC)
+      if (
+        this.mapModal &&
+        this.mapModal.visible &&
+        (event.key === 'Escape' || event.key === 'm' || event.key === 'M')
+      ) {
+        this.closeMapModal();
+        return;
+      }
+
+      if (
+        this.mapModal &&
+        !this.mapModal.visible &&
+        !this.dialogueModal.visible &&
+        !this.documentModal.visible &&
+        !this.inspectModal.visible &&
+        !this.inventoryModal.visible &&
+        (event.key === 'm' || event.key === 'M')
+      ) {
+        this.toggleMapModal();
+        return;
+      }
+
       // NPC 對話分支數字鍵支援 (1 ~ 4 選擇對應分支，0 結束對話)
       if (
         this.dialogueModal.visible &&
@@ -1188,7 +1280,7 @@ export class UIScene extends Phaser.Scene {
         LOGICAL_WIDTH / 2,
         LOGICAL_HEIGHT / 2,
         490,
-        256,
+        286,
         0x0f172a,
         0.98
       )
@@ -1361,11 +1453,31 @@ export class UIScene extends Phaser.Scene {
       this.refreshPauseAudioInfo();
     });
 
+    const fontShowcaseBtn = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2,
+        LOGICAL_HEIGHT / 2 + 50,
+        '🔤 繁體字體清晰度檢測展示 (Font Showcase)',
+        'menuItem',
+        {
+          color: '#fde68a',
+          backgroundColor: '#3b0764',
+          padding: { x: 10, y: 4 },
+        }
+      )
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    fontShowcaseBtn.on('pointerdown', () => {
+      this.openFontShowcaseModal();
+    });
+
     const mainMenuBtn = globalFontManager
       .createCrispText(
         this,
         LOGICAL_WIDTH / 2,
-        LOGICAL_HEIGHT / 2 + 66,
+        LOGICAL_HEIGHT / 2 + 84,
         '🏠 返回標題主選單 (Return to Main Menu)',
         'menuItem',
         {
@@ -1385,7 +1497,7 @@ export class UIScene extends Phaser.Scene {
       .createCrispText(
         this,
         LOGICAL_WIDTH / 2,
-        LOGICAL_HEIGHT / 2 + 106,
+        LOGICAL_HEIGHT / 2 + 118,
         '物理與角色行為已凍結 — 按 [P] 或 [Esc] 恢復遊戲',
         'secondaryHint',
         {
@@ -1408,6 +1520,7 @@ export class UIScene extends Phaser.Scene {
         sfxMinus,
         sfxPlus,
         muteToggle,
+        fontShowcaseBtn,
         mainMenuBtn,
         pauseSub,
       ])
@@ -1603,10 +1716,14 @@ export class UIScene extends Phaser.Scene {
   }
 
   private updateStatusDisplay(snap: PlayerStateSnapshot): void {
-    const posStr = `座標:(${Math.round(snap.x)},${Math.round(snap.y)}) 狀態:${snap.state.toUpperCase()}`;
+    const stPct = Math.round(snap.stamina);
+    const stExhaust = snap.isExhausted ? ' [力竭!]' : '';
+    const posStr = `座標:(${Math.round(snap.x)},${Math.round(snap.y)}) 狀態:${snap.state.toUpperCase()} 耐力:${stPct}/${snap.maxStamina}${stExhaust}`;
     const gSnap = globalGameState.getSnapshot();
     const bagStr = `物品:${this.inventoryItems.length} 線索:${this.cluesList.length} 證據:${gSnap.evidenceCompletion}% 好感:${gSnap.studentAffinity} 信任:${gSnap.studentTrust} 警戒:${gSnap.corporateAlert} 侵蝕:${gSnap.experimentCorruption}`;
     this.statusText.setText(`${posStr} | ${bagStr}`);
+
+    this.drawStaminaBar(snap.stamina, snap.maxStamina, snap.isExhausted);
   }
 
   private updatePromptBanner(
@@ -1640,6 +1757,12 @@ export class UIScene extends Phaser.Scene {
     this.inventoryModal.setVisible(modalState === 'inventory');
     this.endingModal.setVisible(modalState === 'ending');
     this.transitionBanner.setVisible(modalState === 'transition');
+    if (this.mapModal) {
+      this.mapModal.setVisible(modalState === 'map');
+      if (modalState === 'map') {
+        this.refreshMapModal();
+      }
+    }
 
     const stateLabelMap: Record<UIModalState, string> = {
       none: '🎒 調查中心 [按 I / Tab]',
@@ -1647,12 +1770,24 @@ export class UIScene extends Phaser.Scene {
       inspect: '🔍 調查視窗 (INSPECT)',
       document: '📄 文件閱讀 (DOCUMENT)',
       inventory: '📊 調查中心開啟中 [按 I 關閉]',
+      map: '🗺️ 校園地圖 [按 M 關閉]',
       transition: '🚪 區域移動中...',
       anomaly: '⚠️ 異常觀測',
       ending: '🎬 體驗版通關結算',
       paused: '⏸ 遊戲暫停 (PAUSED)',
     };
     this.modalStateBadge.setText(stateLabelMap[modalState]);
+
+    if (modalState === 'none') {
+      this.modalStateBadge.setColor('#a7f3d0');
+      this.modalStateBadge.setBackgroundColor('#064e3bdd');
+    } else if (modalState === 'map') {
+      this.modalStateBadge.setColor('#38bdf8');
+      this.modalStateBadge.setBackgroundColor('#0c223add');
+    } else {
+      this.modalStateBadge.setColor('#f87171');
+      this.modalStateBadge.setBackgroundColor('#450a0add');
+    }
 
     if (
       modalState === 'none' &&
@@ -1893,5 +2028,839 @@ export class UIScene extends Phaser.Scene {
       }),
     ];
     this.cluesListText.setText(rightLines.join('\n'));
+  }
+
+  // ==========================================
+  // Phase 6B-2: 3棟5層+地下室全校導覽地圖系統
+  // ==========================================
+
+  private createMapModal(): void {
+    const modalBg = this.add
+      .rectangle(
+        LOGICAL_WIDTH / 2,
+        LOGICAL_HEIGHT / 2,
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+        0x020617,
+        0.92
+      )
+      .setInteractive();
+
+    const panel = this.add
+      .rectangle(
+        LOGICAL_WIDTH / 2,
+        LOGICAL_HEIGHT / 2,
+        616,
+        338,
+        0x090d16,
+        0.98
+      )
+      .setStrokeStyle(2, 0x38bdf8);
+
+    const title = globalFontManager
+      .createCrispText(
+        this,
+        24,
+        20,
+        '🗺️ 白川學園全校導覽地圖 (CAMPUS MAP - 3×5 GRID)',
+        'speakerName',
+        { color: '#fcd34d' }
+      )
+      .setOrigin(0, 0.5);
+
+    const sub = globalFontManager
+      .createCrispText(
+        this,
+        24,
+        38,
+        '三棟五層連通走廊・中央棟垂直梯・地下設施・按 [M] 或 [Esc] 關閉',
+        'secondaryHint',
+        { color: '#94a3b8' }
+      )
+      .setOrigin(0, 0.5);
+
+    const closeBtn = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH - 24,
+        22,
+        '[✕ 關閉 (M/Esc)]',
+        'secondaryHint',
+        {
+          color: '#f87171',
+          backgroundColor: '#450a0add',
+          padding: { x: 6, y: 2 },
+        }
+      )
+      .setOrigin(1, 0.5)
+      .setInteractive({ useHandCursor: true });
+
+    closeBtn.on('pointerdown', () => this.closeMapModal());
+
+    const children: Phaser.GameObjects.GameObject[] = [
+      modalBg,
+      panel,
+      title,
+      sub,
+      closeBtn,
+    ];
+
+    // 棟別標題列 (y = 56)
+    const colLeftTitle = globalFontManager
+      .createCrispText(this, 115, 56, '【左棟教學區】', 'secondaryHint', {
+        color: '#93c5fd',
+      })
+      .setOrigin(0.5);
+    const colCenterTitle = globalFontManager
+      .createCrispText(this, 320, 56, '【中間棟交通樞紐】', 'secondaryHint', {
+        color: '#a7f3d0',
+      })
+      .setOrigin(0.5);
+    const colRightTitle = globalFontManager
+      .createCrispText(
+        this,
+        525,
+        56,
+        '【右棟活動與研究區】',
+        'secondaryHint',
+        {
+          color: '#fde68a',
+        }
+      )
+      .setOrigin(0.5);
+
+    children.push(colLeftTitle, colCenterTitle, colRightTitle);
+
+    // 5F 至 1F 樓層定義 (3 棟 × 5 層 = 15 格)
+    const floorRows: Array<{
+      floorLabel: string;
+      y: number;
+      left: { areaId: AreaId; name: string };
+      center: { areaId: AreaId; name: string };
+      right: { areaId: AreaId; name: string };
+    }> = [
+      {
+        floorLabel: '5F',
+        y: 77,
+        left: { areaId: 'rooftop_west', name: '屋頂西側' },
+        center: { areaId: 'rooftop', name: '屋頂花園' },
+        right: { areaId: 'rooftop_equipment', name: '屋頂設備室' },
+      },
+      {
+        floorLabel: '4F',
+        y: 104,
+        left: { areaId: 'special_classroom', name: '特殊教室' },
+        center: { areaId: 'old_library', name: '資料室' },
+        right: { areaId: 'forbidden_archive', name: '學生會室' },
+      },
+      {
+        floorLabel: '3F',
+        y: 131,
+        left: { areaId: 'classroom_2b', name: '2年B班教室' },
+        center: { areaId: 'academic_office', name: '走廊東側' },
+        right: { areaId: 'student_activity_room', name: '學生會活動室' },
+      },
+      {
+        floorLabel: '2F',
+        y: 158,
+        left: { areaId: 'classroom', name: '2年A班教室' },
+        center: { areaId: 'corridor', name: '走廊西側' },
+        right: { areaId: 'dormitory', name: '理科實驗室' },
+      },
+      {
+        floorLabel: '1F',
+        y: 185,
+        left: { areaId: 'teachers_office', name: '教職員室' },
+        center: { areaId: 'bulletin_area', name: '中央大廳' },
+        right: { areaId: 'infirmary', name: '保健室' },
+      },
+    ];
+
+    floorRows.forEach((row) => {
+      // 樓層文字
+      const fText = globalFontManager
+        .createCrispText(this, 26, row.y, row.floorLabel, 'secondaryHint', {
+          color: '#cbd5e1',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5);
+      children.push(fText);
+
+      // 水平連通走廊線與樓梯符號
+      const leftCorr = globalFontManager
+        .createCrispText(this, 203, row.y, '══', 'secondaryHint', {
+          color: '#64748b',
+        })
+        .setOrigin(0.5);
+      const rightCorr = globalFontManager
+        .createCrispText(this, 437, row.y, '══', 'secondaryHint', {
+          color: '#64748b',
+        })
+        .setOrigin(0.5);
+      const leftStair = globalFontManager
+        .createCrispText(this, 224, row.y, '🪜', 'secondaryHint', {
+          color: '#38bdf8',
+        })
+        .setOrigin(0.5);
+      const rightStair = globalFontManager
+        .createCrispText(this, 416, row.y, '🪜', 'secondaryHint', {
+          color: '#38bdf8',
+        })
+        .setOrigin(0.5);
+
+      children.push(leftCorr, rightCorr, leftStair, rightStair);
+
+      // 建立左、中、右三個單元格
+      const leftCell = this.createMapCell(
+        row.left.areaId,
+        row.left.name,
+        115,
+        row.y,
+        154,
+        23
+      );
+      const centerCell = this.createMapCell(
+        row.center.areaId,
+        row.center.name,
+        320,
+        row.y,
+        166,
+        23
+      );
+      const rightCell = this.createMapCell(
+        row.right.areaId,
+        row.right.name,
+        525,
+        row.y,
+        154,
+        23
+      );
+
+      children.push(
+        leftCell.bg,
+        leftCell.label,
+        leftCell.pinText,
+        centerCell.bg,
+        centerCell.label,
+        centerCell.pinText,
+        rightCell.bg,
+        rightCell.label,
+        rightCell.pinText
+      );
+    });
+
+    // 地面層（校門前廣場）
+    const groundLabel = globalFontManager
+      .createCrispText(this, 26, 212, '1F/G', 'secondaryHint', {
+        color: '#94a3b8',
+      })
+      .setOrigin(0.5);
+    const gateCell = this.createMapCell(
+      'school_gate',
+      '校門前廣場 (正門入口)',
+      320,
+      212,
+      196,
+      22
+    );
+    const gateConn = globalFontManager
+      .createCrispText(this, 320, 198, '║', 'secondaryHint', {
+        color: '#64748b',
+      })
+      .setOrigin(0.5);
+    children.push(
+      groundLabel,
+      gateConn,
+      gateCell.bg,
+      gateCell.label,
+      gateCell.pinText
+    );
+
+    // 地下室標籤與深層實驗室 (B1 ~ B3)
+    const ugLabel = globalFontManager
+      .createCrispText(this, 26, 240, 'B1-3', 'secondaryHint', {
+        color: '#f43f5e',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    const ugSub = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2,
+        238,
+        '—— 地下深層管制設施 (UNDERGROUND FACILITY) ——',
+        'secondaryHint',
+        { color: '#f87171' }
+      )
+      .setOrigin(0.5);
+
+    const b1Cell = this.createMapCell(
+      'underground_b1',
+      '地下通道 (B1)',
+      115,
+      260,
+      154,
+      22
+    );
+    const b2Cell = this.createMapCell(
+      'underground_b2',
+      '秘密研究室 (B2)',
+      320,
+      260,
+      166,
+      22
+    );
+    const b3Cell = this.createMapCell(
+      'underground_b3',
+      '核心隔離室 (B3)',
+      525,
+      260,
+      154,
+      22
+    );
+
+    const ugLeftCorr = globalFontManager
+      .createCrispText(this, 203, 260, '══', 'secondaryHint', {
+        color: '#64748b',
+      })
+      .setOrigin(0.5);
+    const ugRightCorr = globalFontManager
+      .createCrispText(this, 437, 260, '══', 'secondaryHint', {
+        color: '#64748b',
+      })
+      .setOrigin(0.5);
+
+    children.push(
+      ugLabel,
+      ugSub,
+      ugLeftCorr,
+      ugRightCorr,
+      b1Cell.bg,
+      b1Cell.label,
+      b1Cell.pinText,
+      b2Cell.bg,
+      b2Cell.label,
+      b2Cell.pinText,
+      b3Cell.bg,
+      b3Cell.label,
+      b3Cell.pinText
+    );
+
+    // 底部詳細資訊列與圖例
+    this.mapDetailText = globalFontManager
+      .createCrispText(
+        this,
+        24,
+        286,
+        '📍 目前位置：點擊各房間可查看連通路線、探索狀態與特殊調查標的',
+        'secondaryHint',
+        {
+          color: '#fef08a',
+          wordWrap: { width: 568, useAdvancedWrap: true },
+        }
+      )
+      .setOrigin(0, 0);
+
+    const legendText = globalFontManager
+      .createCrispText(
+        this,
+        24,
+        312,
+        '圖例說明：[📍你在此處] [✓已探索] [???未探索] ｜ [══]水平連通走廊 [🪜]中央棟跨樓層垂直梯',
+        'secondaryHint',
+        { color: '#94a3b8' }
+      )
+      .setOrigin(0, 0);
+
+    children.push(this.mapDetailText, legendText);
+
+    this.mapModal = this.add
+      .container(0, 0, children)
+      .setDepth(155)
+      .setVisible(false);
+  }
+
+  private createMapCell(
+    areaId: AreaId,
+    defaultName: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number
+  ): {
+    bg: Phaser.GameObjects.Rectangle;
+    label: Phaser.GameObjects.Text;
+    pinText: Phaser.GameObjects.Text;
+  } {
+    const bg = this.add
+      .rectangle(x, y, w, h, 0x0f172a, 0.9)
+      .setStrokeStyle(1, 0x334155)
+      .setInteractive({ useHandCursor: true });
+
+    const label = globalFontManager
+      .createCrispText(this, x - w / 2 + 6, y, defaultName, 'secondaryHint', {
+        color: '#cbd5e1',
+      })
+      .setOrigin(0, 0.5);
+
+    const pinText = globalFontManager
+      .createCrispText(this, x + w / 2 - 6, y, '', 'secondaryHint', {
+        color: '#facc15',
+        fontStyle: 'bold',
+      })
+      .setOrigin(1, 0.5);
+
+    const cellObj = { bg, label, pinText };
+    this.mapGridItems.set(areaId, cellObj);
+
+    bg.on('pointerover', () => {
+      bg.setStrokeStyle(2, 0x38bdf8);
+      this.displayMapRoomDetail(areaId);
+    });
+
+    bg.on('pointerout', () => {
+      const isCurrent = globalExplorationState.getCurrentAreaId() === areaId;
+      const isExplored = globalExplorationState.isAreaExplored(areaId);
+      if (isCurrent) {
+        bg.setStrokeStyle(2, 0xfacc15);
+      } else if (isExplored) {
+        bg.setStrokeStyle(1, 0x10b981);
+      } else {
+        bg.setStrokeStyle(1, 0x334155);
+      }
+    });
+
+    bg.on('pointerdown', () => {
+      this.displayMapRoomDetail(areaId);
+    });
+
+    return cellObj;
+  }
+
+  private displayMapRoomDetail(areaId: AreaId): void {
+    if (!this.mapDetailText) return;
+    const def = CAMPUS_AREAS[areaId];
+    const isCurrent = globalExplorationState.getCurrentAreaId() === areaId;
+    const isExplored = globalExplorationState.isAreaExplored(areaId);
+
+    if (!def) {
+      this.mapDetailText.setText(`房間情報：${areaId}`);
+      return;
+    }
+
+    const curTag = isCurrent ? '【📍 你當前所在位置】' : '';
+    const expTag = isExplored ? '✓ 已探索' : '??? 未探索區域';
+    const locName =
+      def.fullDisplayName ||
+      `「${def.buildingName || ''} ${def.floorName || ''} ${def.title}」`;
+    const portals =
+      def.interactables
+        .filter((i) => i.kind === 'portal')
+        .map((p) => p.promptAction)
+        .join('、') || '無連通通道';
+
+    if (isExplored || isCurrent) {
+      this.mapDetailText.setText(
+        `${curTag}${locName} [${expTag}]\n連通出入口：${portals} | 簡介：${def.subtitle}`
+      );
+      this.mapDetailText.setColor(isCurrent ? '#fef08a' : '#a7f3d0');
+    } else {
+      this.mapDetailText.setText(
+        `${locName} [${expTag}]\n該區域尚未親自前往調查，可經由相鄰樓層走廊或中央棟樓梯探索抵達。`
+      );
+      this.mapDetailText.setColor('#94a3b8');
+    }
+  }
+
+  private refreshMapModal(): void {
+    const currentAreaId = globalExplorationState.getCurrentAreaId();
+    for (const [areaIdStr, item] of this.mapGridItems.entries()) {
+      const areaId = areaIdStr as AreaId;
+      const isCurrent = areaId === currentAreaId;
+      const isExplored = globalExplorationState.isAreaExplored(areaId);
+      const def = CAMPUS_AREAS[areaId];
+      const roomTitle = def ? def.roomName || def.title : areaId;
+
+      if (isCurrent) {
+        item.bg.setFillStyle(0x78350f, 0.95);
+        item.bg.setStrokeStyle(2, 0xfacc15);
+        item.label.setText(roomTitle);
+        item.label.setColor('#fef08a');
+        item.pinText.setText('📍你在這');
+        item.pinText.setColor('#facc15');
+        item.pinText.setVisible(true);
+      } else if (isExplored) {
+        item.bg.setFillStyle(0x064e3b, 0.85);
+        item.bg.setStrokeStyle(1, 0x10b981);
+        item.label.setText(roomTitle);
+        item.label.setColor('#a7f3d0');
+        item.pinText.setText('✓');
+        item.pinText.setColor('#34d399');
+        item.pinText.setVisible(true);
+      } else {
+        item.bg.setFillStyle(0x0f172a, 0.85);
+        item.bg.setStrokeStyle(1, 0x334155);
+        item.label.setText(roomTitle);
+        item.label.setColor('#64748b');
+        item.pinText.setText('');
+        item.pinText.setVisible(false);
+      }
+    }
+
+    this.displayMapRoomDetail(currentAreaId);
+  }
+
+  public toggleMapModal(): void {
+    if (this.mapModal && this.mapModal.visible) {
+      this.closeMapModal();
+    } else {
+      globalEventBus.emit(GameEvents.UI_MODAL_CHANGED, {
+        modalState: 'map',
+        result: null,
+      });
+    }
+  }
+
+  public closeMapModal(): void {
+    globalEventBus.emit(GameEvents.UI_MODAL_CHANGED, {
+      modalState: 'none',
+      result: null,
+    });
+  }
+
+  // ==========================================
+  // Phase 6B-2: 繁體中文字體清晰度檢測展示介面
+  // ==========================================
+
+  private createFontShowcaseModal(): void {
+    const modalBg = this.add
+      .rectangle(
+        LOGICAL_WIDTH / 2,
+        LOGICAL_HEIGHT / 2,
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+        0x020617,
+        0.94
+      )
+      .setInteractive();
+
+    const panel = this.add
+      .rectangle(
+        LOGICAL_WIDTH / 2,
+        LOGICAL_HEIGHT / 2,
+        616,
+        338,
+        0x090d16,
+        0.98
+      )
+      .setStrokeStyle(2, 0xa855f7);
+
+    const title = globalFontManager
+      .createCrispText(
+        this,
+        24,
+        20,
+        '🔤 繁體中文字體清晰度與渲染檢驗展示 (FONT SHOWCASE)',
+        'speakerName',
+        { color: '#c084fc' }
+      )
+      .setOrigin(0, 0.5);
+
+    const sub = globalFontManager
+      .createCrispText(
+        this,
+        24,
+        38,
+        '字體配置：Noto Sans TC | 邏輯解析度：640×360 | 筆畫抗模糊對齊 | 嚴格 >= 12px',
+        'secondaryHint',
+        { color: '#94a3b8' }
+      )
+      .setOrigin(0, 0.5);
+
+    const closeBtn = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH - 24,
+        22,
+        '[✕ 關閉 (Esc)]',
+        'secondaryHint',
+        {
+          color: '#f87171',
+          backgroundColor: '#450a0add',
+          padding: { x: 6, y: 2 },
+        }
+      )
+      .setOrigin(1, 0.5)
+      .setInteractive({ useHandCursor: true });
+
+    closeBtn.on('pointerdown', () => this.closeFontShowcaseModal());
+
+    const children: Phaser.GameObjects.GameObject[] = [
+      modalBg,
+      panel,
+      title,
+      sub,
+      closeBtn,
+    ];
+
+    // 左欄 (x = 24 ~ 330)
+    // 1. 高難度生僻字與繁體極限筆畫
+    const t1 = globalFontManager.createCrispText(
+      this,
+      24,
+      54,
+      '【1. 繁體高難度生僻與極限筆畫測試】',
+      'secondaryHint',
+      { color: '#fde68a' }
+    );
+    const cjkText = globalFontManager.createCrispText(
+      this,
+      24,
+      72,
+      '鬱 驫 鸞 鑿 囊 釁 灤 鱟 籲 驚 艷 嚴 龜 囑 攬 疊 驟 體',
+      'dialogueBody',
+      { color: '#f8fafc' }
+    );
+
+    // 2. 劇情世界觀長句實測 (16px)
+    const t2 = globalFontManager.createCrispText(
+      this,
+      24,
+      102,
+      '【2. 劇情代表長句實測 (16px 正文標準)】',
+      'secondaryHint',
+      { color: '#fde68a' }
+    );
+    const pangram1 = globalFontManager.createCrispText(
+      this,
+      24,
+      120,
+      '「白川財閥於1954年創立私立白川學園，地下三層隱藏回聲搖籃人體實驗。」\n「18.9Hz第四聲鐘響伴隨認知過濾，第29號席位之謎終將揭曉。」',
+      'documentBody',
+      {
+        color: '#e2e8f0',
+        wordWrap: { width: 310, useAdvancedWrap: true },
+        lineSpacing: 4,
+      }
+    );
+
+    // 3. 標點符號與英數對齊
+    const t3 = globalFontManager.createCrispText(
+      this,
+      24,
+      186,
+      '【3. 英數符號與全半形排版對齊】',
+      'secondaryHint',
+      { color: '#fde68a' }
+    );
+    const symText = globalFontManager.createCrispText(
+      this,
+      24,
+      204,
+      '0123456789 | AaBbCcZz | 18.9Hz\n【】『』「」——……！？：；、（）《》',
+      'secondaryHint',
+      { color: '#cbd5e1' }
+    );
+
+    // 4. 高對比度色彩底框測試
+    const t4 = globalFontManager.createCrispText(
+      this,
+      24,
+      242,
+      '【4. 高對比色彩框實測】',
+      'secondaryHint',
+      { color: '#fde68a' }
+    );
+    const darkBox = this.add
+      .rectangle(94, 276, 140, 36, 0x020617)
+      .setStrokeStyle(1, 0x475569);
+    const darkBoxText = globalFontManager
+      .createCrispText(this, 94, 276, '深底白字 (16px)', 'menuItem', {
+        color: '#f8fafc',
+      })
+      .setOrigin(0.5);
+
+    const lightBox = this.add
+      .rectangle(248, 276, 140, 36, 0xf1f5f9)
+      .setStrokeStyle(1, 0x94a3b8);
+    const lightBoxText = globalFontManager
+      .createCrispText(this, 248, 276, '淺底黑字 (16px)', 'menuItem', {
+        color: '#0f172a',
+      })
+      .setOrigin(0.5);
+
+    children.push(
+      t1,
+      cjkText,
+      t2,
+      pangram1,
+      t3,
+      symText,
+      t4,
+      darkBox,
+      darkBoxText,
+      lightBox,
+      lightBoxText
+    );
+
+    // 右欄 (x = 345 ~ 600)
+    // 5. 字級階梯規範 (>= 12px)
+    const t5 = globalFontManager.createCrispText(
+      this,
+      345,
+      54,
+      '【5. 遊戲字級規範階梯 (嚴格 >= 12px)】',
+      'secondaryHint',
+      { color: '#fde68a' }
+    );
+    const ladder1 = globalFontManager.createCrispText(
+      this,
+      345,
+      72,
+      '20px：重大提示 importantPrompt',
+      'importantPrompt',
+      { color: '#38bdf8' }
+    );
+    const ladder2 = globalFontManager.createCrispText(
+      this,
+      345,
+      100,
+      '17px：說話者名稱 speakerName [蘇語晴]',
+      'speakerName',
+      { color: '#fcd34d' }
+    );
+    const ladder3 = globalFontManager.createCrispText(
+      this,
+      345,
+      126,
+      '16px：對白內文 dialogueBody [語音與文字]',
+      'dialogueBody',
+      { color: '#ffffff' }
+    );
+    const ladder4 = globalFontManager.createCrispText(
+      this,
+      345,
+      152,
+      '16px：選單與文件 menuItem / documentBody',
+      'menuItem',
+      { color: '#a7f3d0' }
+    );
+    const ladder5 = globalFontManager.createCrispText(
+      this,
+      345,
+      178,
+      '12px：次要提示 secondaryHint (系統底限)',
+      'secondaryHint',
+      { color: '#94a3b8' }
+    );
+
+    // 6. 渲染與技術規範摘要
+    const t6 = globalFontManager.createCrispText(
+      this,
+      345,
+      206,
+      '【6. 字體渲染技術指標】',
+      'secondaryHint',
+      { color: '#fde68a' }
+    );
+    const techText = globalFontManager.createCrispText(
+      this,
+      345,
+      224,
+      '・字體來源：Google Fonts Noto Sans TC (400, 700)\n・預載機制：BootScene CSS Font Preload 異步就緒\n・抗模糊：roundPixels: true，原尺寸無失真繪製\n・缺字防護：全系列繁體中文、日韓假名與特殊符號\n・標準規格：所有正文與按鈕均嚴格 >= 16px',
+      'secondaryHint',
+      {
+        color: '#6ee7b7',
+        lineSpacing: 3,
+      }
+    );
+
+    const returnBtn = globalFontManager
+      .createCrispText(
+        this,
+        LOGICAL_WIDTH / 2,
+        316,
+        '✕ 返回遊戲 / 關閉展示 [Esc / 點擊]',
+        'menuItem',
+        {
+          color: '#fef08a',
+          backgroundColor: '#1e293b',
+          padding: { x: 12, y: 4 },
+        }
+      )
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    returnBtn.on('pointerdown', () => this.closeFontShowcaseModal());
+
+    children.push(
+      t5,
+      ladder1,
+      ladder2,
+      ladder3,
+      ladder4,
+      ladder5,
+      t6,
+      techText,
+      returnBtn
+    );
+
+    this.fontShowcaseModal = this.add
+      .container(0, 0, children)
+      .setDepth(165)
+      .setVisible(false);
+  }
+
+  public openFontShowcaseModal(): void {
+    if (this.fontShowcaseModal) {
+      this.fontShowcaseModal.setVisible(true);
+    }
+  }
+
+  public closeFontShowcaseModal(): void {
+    if (this.fontShowcaseModal) {
+      this.fontShowcaseModal.setVisible(false);
+    }
+  }
+
+  // ==========================================
+  // Phase 6B-2: HUD 耐力條視覺渲染
+  // ==========================================
+
+  private drawStaminaBar(
+    stamina: number,
+    maxStamina: number,
+    isExhausted: boolean
+  ): void {
+    if (!this.staminaBarGraphics) return;
+    this.staminaBarGraphics.clear();
+
+    const barX = 8;
+    const barY = 36;
+    const barW = 100;
+    const barH = 4;
+
+    // 外框背景
+    this.staminaBarGraphics.fillStyle(0x0f172a, 0.9);
+    this.staminaBarGraphics.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+    this.staminaBarGraphics.lineStyle(1, 0x475569, 0.8);
+    this.staminaBarGraphics.strokeRect(barX - 1, barY - 1, barW + 2, barH + 2);
+
+    // 填充
+    const ratio = Math.max(0, Math.min(1, stamina / maxStamina));
+    const fillW = Math.round(barW * ratio);
+
+    if (fillW > 0) {
+      let fillColor = 0x10b981;
+      if (isExhausted) {
+        fillColor = 0xef4444;
+      } else if (ratio < 0.3) {
+        fillColor = 0xf59e0b;
+      } else if (ratio < 0.7) {
+        fillColor = 0x38bdf8;
+      }
+      this.staminaBarGraphics.fillStyle(fillColor, 1);
+      this.staminaBarGraphics.fillRect(barX, barY, fillW, barH);
+    }
   }
 }

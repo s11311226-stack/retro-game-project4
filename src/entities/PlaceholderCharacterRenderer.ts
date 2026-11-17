@@ -91,6 +91,9 @@ export class PlaceholderCharacterRenderer implements ICharacterVisualAdapter {
 
     if (snapshot.state === 'move') {
       bodyColor = 0x22d3ee;
+    } else if (snapshot.state === 'run') {
+      bodyColor = 0xf59e0b; // 奔跑衝刺亮橘色
+      outlineColor = 0xfef08a;
     } else if (snapshot.state === 'jump') {
       bodyColor = 0xa855f7;
     } else if (snapshot.state === 'block') {
@@ -141,12 +144,23 @@ export class PlaceholderCharacterRenderer implements ICharacterVisualAdapter {
 
     // 雙腳動態示意
     const stride =
-      snapshot.state === 'move'
-        ? Math.sin(this.scene.time.now * 0.018) * 5
-        : 0;
+      snapshot.state === 'run'
+        ? Math.sin(this.scene.time.now * 0.035) * 8
+        : snapshot.state === 'move'
+          ? Math.sin(this.scene.time.now * 0.018) * 5
+          : 0;
     g.fillStyle(0xcbd5e1, 0.9);
     g.fillRect(headCenterX - 7 + stride, cy + ch - 12, 5, 12);
     g.fillRect(headCenterX + 2 - stride, cy + ch - 12, 5, 12);
+
+    if (snapshot.state === 'run') {
+      // 繪製衝刺殘影與風速線
+      g.lineStyle(1, 0xfde047, 0.65);
+      const trailX = Math.round(snapshot.x - dirSign * 18);
+      g.lineBetween(trailX, cy + 18, trailX - dirSign * 12, cy + 18);
+      g.lineBetween(trailX - 4, cy + 34, trailX - dirSign * 16, cy + 34);
+      g.lineBetween(trailX, cy + 50, trailX - dirSign * 10, cy + 50);
+    }
 
     // 朝向箭頭標記
     const arrowTipX = Math.round(snapshot.x + dirSign * (cw / 2 + 8));

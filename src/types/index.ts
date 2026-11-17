@@ -3,6 +3,7 @@ export type FacingDirection = 'left' | 'right';
 export type PlayerActionState =
   | 'idle'
   | 'move'
+  | 'run'
   | 'jump'
   | 'attack'
   | 'block';
@@ -28,6 +29,20 @@ export interface PlayerStatsConfig {
   };
   /** 水平移動速度 (px/s) */
   moveSpeed: number;
+  /** Shift 衝刺奔跑速度 (px/s，約為 moveSpeed 之 1.6 倍) */
+  sprintSpeed: number;
+  /** 最大耐力值 (預設 100) */
+  maxStamina: number;
+  /** 奔跑時每秒耐力消耗率 (點/秒) */
+  staminaDrainRate: number;
+  /** 待機或慢走時每秒耐力恢復率 (點/秒) */
+  staminaRegenRate: number;
+  /** 筋疲力竭後重新允許奔跑的最低耐力門檻 (預設 25) */
+  exhaustionRecoveryThreshold: number;
+  /** 一般行走之聲音偵測半徑 (px) */
+  noiseRadiusWalk: number;
+  /** 衝刺奔跑之聲音偵測半徑 (px) */
+  noiseRadiusRun: number;
   /** 格擋狀態下是否允許緩慢移動，預設 0 為站立格擋 */
   blockMoveSpeed: number;
   /** 跳躍初速度 (px/s, 向上為負值) */
@@ -57,11 +72,13 @@ export interface PlayerStatsConfig {
 export interface KeyBindingConfig {
   moveLeft: string[];
   moveRight: string[];
+  run: string[];
   jump: string[];
   attack: string[];
   block: string[];
   interact: string[];
   inventory: string[];
+  map: string[];
   pause: string[];
   /** 是否啟用滑鼠左鍵攻擊、右鍵格擋 */
   enableMouseCombat: boolean;
@@ -70,11 +87,13 @@ export interface KeyBindingConfig {
 export interface InputSnapshot {
   moveLeft: boolean;
   moveRight: boolean;
+  runHeld?: boolean;
   jumpJustPressed: boolean;
   attackJustPressed: boolean;
   blockHeld: boolean;
   interactJustPressed: boolean;
   inventoryJustPressed: boolean;
+  mapJustPressed?: boolean;
   pauseJustPressed: boolean;
 }
 
@@ -97,6 +116,11 @@ export interface PlayerStateSnapshot {
   activeAttackHitbox: HitboxRect | null;
   isGrounded: boolean;
   attackCooldownRemainingMs: number;
+  stamina: number;
+  maxStamina: number;
+  isExhausted: boolean;
+  isRunning: boolean;
+  noiseRadius: number;
 }
 
 /**
@@ -115,6 +139,15 @@ export interface ICharacterVisualAdapter {
 // Phase 2 — 校園探索區域、互動物件、背包、線索與 UI 狀態型別定義
 // ============================================================================
 
+export type BuildingType =
+  | 'left'
+  | 'center'
+  | 'right'
+  | 'outdoor'
+  | 'underground';
+
+export type FloorLevel = 1 | 2 | 3 | 4 | 5 | 0 | -1 | -2 | -3;
+
 export type AreaId =
   | 'school_gate'
   | 'bulletin_area'
@@ -126,7 +159,15 @@ export type AreaId =
   | 'old_library'
   | 'forbidden_archive'
   | 'rooftop'
-  | 'infirmary';
+  | 'infirmary'
+  | 'classroom_2b'
+  | 'student_activity_room'
+  | 'special_classroom'
+  | 'rooftop_west'
+  | 'rooftop_equipment'
+  | 'underground_b1'
+  | 'underground_b2'
+  | 'underground_b3';
 
 export type InteractableKind =
   | 'portal'
@@ -141,6 +182,7 @@ export type UIModalState =
   | 'inspect'
   | 'document'
   | 'inventory'
+  | 'map'
   | 'transition'
   | 'anomaly'
   | 'ending'
@@ -242,6 +284,12 @@ export interface AreaDefinition {
   sceneKey: string;
   title: string;
   subtitle: string;
+  building: BuildingType;
+  buildingName: string; // '左棟' | '中間棟' | '右棟' | '校園正門' | '地下禁區'
+  floor: FloorLevel;
+  floorName: string; // '1F' | '2F' | '3F' | '4F' | '5F' | '地面' | 'B1' | 'B2' | 'B3'
+  roomName: string; // '普通教室 3-C' | '穿堂公告欄' | '保健室' etc.
+  fullDisplayName: string; // '左棟｜1F｜普通教室 3-C'
   bounds: {
     minX: number;
     maxX: number;
@@ -750,12 +798,14 @@ export interface GameSavePayloadV2 {
     x: number;
     y: number;
     facing: FacingDirection;
+    stamina?: number;
   };
   exploration: {
     collectedObjectIds: string[];
     inventoryItemIds: string[];
     clueIds: string[];
     unlockedPortalIds: string[];
+    exploredAreaIds?: string[];
   };
   story: {
     flags: StoryFlagId[];

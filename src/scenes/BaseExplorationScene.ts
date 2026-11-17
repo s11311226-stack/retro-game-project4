@@ -365,8 +365,8 @@ export abstract class BaseExplorationScene extends Phaser.Scene {
       globalAudioSynth.playAttack();
     } else if (next === 'block' && prev !== 'block') {
       globalAudioSynth.playBlock();
-    } else if (next === 'move' && snapshot.isGrounded) {
-      globalAudioSynth.playFootstep(this.time.now);
+    } else if ((next === 'move' || next === 'run') && snapshot.isGrounded) {
+      globalAudioSynth.playFootstep(this.time.now, next === 'run');
     }
 
     this.previousPlayerState = next;

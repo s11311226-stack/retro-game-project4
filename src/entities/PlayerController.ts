@@ -46,6 +46,10 @@ export class PlayerController {
   private attackTimerMs = 0;
   private cooldownTimerMs = 0;
 
+  // 耐力 (Stamina) 與筋疲力竭狀態 (Exhaustion)
+  private stamina = 100;
+  private isExhausted = false;
+
   private paused = false;
 
   constructor(
@@ -77,6 +81,7 @@ export class PlayerController {
     this.bounds = { ...bounds };
     this.x = initialX;
     this.y = initialY;
+    this.stamina = this.config.maxStamina ?? 100;
     this.resolveCollisions();
   }
 
@@ -191,26 +196,51 @@ export class PlayerController {
       if (canTriggerAttack) {
         this.enterAttackState();
       } else if (input.jumpJustPressed && this.canJump()) {
-        // 跳躍：若原本在格擋中按下跳躍，自動解除格擋並起跳
+        // 跳躍：若原本在格擋中按下跳躍，自動解除格擋並起跳；若按住奔跑鍵則承襲衝刺速度
         this.vy = this.config.jumpVelocity;
         this.isGrounded = false;
         this.jumpsUsed += 1;
         this.state = 'jump';
-        this.vx = HorizontalDir * this.config.moveSpeed;
+        const isSprintJump =
+          input.runHeld && !this.isExhausted && this.stamina > 0 && HorizontalDir !== 0;
+        const currentHorizSpeed = isSprintJump
+          ? (this.config.sprintSpeed ?? 240)
+          : this.config.moveSpeed;
+        this.vx = HorizontalDir * currentHorizSpeed;
       } else if (input.blockHeld && this.isGrounded) {
-        // 地面按住格擋鍵進入格擋狀態
+        // 地面按住格擋鍵進入格擋狀態，並自然恢復耐力
         this.state = 'block';
         this.vx = HorizontalDir * this.config.blockMoveSpeed;
-      } else {
-        // 一般移動或待機/空中狀態
-        this.vx = HorizontalDir * this.config.moveSpeed;
-        if (!this.isGrounded) {
-          this.state = 'jump';
-        } else if (HorizontalDir !== 0) {
-          this.state = 'move';
+        this.recoverStamina(dtSec);
+      } else if (this.isGrounded) {
+        // 地面移動、奔跑或待機
+        if (HorizontalDir !== 0) {
+          const wantsSprint = input.runHeld && !this.isExhausted && this.stamina > 0;
+          if (wantsSprint) {
+            this.state = 'run';
+            this.vx = HorizontalDir * (this.config.sprintSpeed ?? 240);
+            this.stamina = Math.max(
+              0,
+              this.stamina - (this.config.staminaDrainRate ?? 25) * dtSec
+            );
+            if (this.stamina <= 0) {
+              this.stamina = 0;
+              this.isExhausted = true;
+            }
+          } else {
+            this.state = 'move';
+            this.vx = HorizontalDir * this.config.moveSpeed;
+            this.recoverStamina(dtSec);
+          }
         } else {
           this.state = 'idle';
+          this.vx = 0;
+          this.recoverStamina(dtSec);
         }
+      } else {
+        // 空中狀態
+        this.state = 'jump';
+        this.vx = HorizontalDir * this.config.moveSpeed;
       }
     }
 
@@ -228,7 +258,7 @@ export class PlayerController {
     // 5. 邊界與地板碰撞修正
     this.resolveCollisions();
 
-    // 6. 落地後若非攻擊中，重新同步地面狀態 (例如從空中落地時自動從 jump 轉回 idle/move/block)
+    // 6. 落地後若非攻擊中，重新同步地面狀態 (例如從空中落地時自動從 jump 轉回 idle/move/run/block)
     if (this.state !== 'attack') {
       if (!this.isGrounded) {
         this.state = 'jump';
@@ -236,7 +266,8 @@ export class PlayerController {
         this.state = 'block';
         this.vx = HorizontalDir * this.config.blockMoveSpeed;
       } else if (HorizontalDir !== 0) {
-        this.state = 'move';
+        const isSprinting = input.runHeld && !this.isExhausted && this.stamina > 0;
+        this.state = isSprinting ? 'run' : 'move';
       } else {
         this.state = 'idle';
       }
@@ -320,8 +351,48 @@ export class PlayerController {
     };
   }
 
+  private recoverStamina(dtSec: number): void {
+    const maxStam = this.config.maxStamina ?? 100;
+    const regen = this.config.staminaRegenRate ?? 20;
+    this.stamina = Math.min(maxStam, this.stamina + regen * dtSec);
+    const recoveryThresh = this.config.exhaustionRecoveryThreshold ?? 25;
+    if (this.isExhausted && this.stamina >= recoveryThresh) {
+      this.isExhausted = false;
+    }
+  }
+
+  public getStamina(): number {
+    return Math.round(this.stamina * 10) / 10;
+  }
+
+  public setStamina(value: number): void {
+    const maxStam = this.config.maxStamina ?? 100;
+    this.stamina = Math.max(0, Math.min(maxStam, value));
+    if (this.stamina <= 0) {
+      this.isExhausted = true;
+    } else if (this.stamina >= (this.config.exhaustionRecoveryThreshold ?? 25)) {
+      this.isExhausted = false;
+    }
+  }
+
+  public getMaxStamina(): number {
+    return this.config.maxStamina ?? 100;
+  }
+
+  public isPlayerExhausted(): boolean {
+    return this.isExhausted;
+  }
+
   public getSnapshot(): PlayerStateSnapshot {
     const activeHitbox = this.getActiveAttackHitbox();
+    const isRunning = this.state === 'run';
+    const isMoving = this.state === 'move';
+    const noiseRadius = isRunning
+      ? (this.config.noiseRadiusRun ?? 150)
+      : isMoving
+        ? (this.config.noiseRadiusWalk ?? 60)
+        : 0;
+
     return {
       x: this.x,
       y: this.y,
@@ -334,6 +405,11 @@ export class PlayerController {
       activeAttackHitbox: activeHitbox,
       isGrounded: this.isGrounded,
       attackCooldownRemainingMs: this.cooldownTimerMs,
+      stamina: Math.round(this.stamina * 10) / 10,
+      maxStamina: this.config.maxStamina ?? 100,
+      isExhausted: this.isExhausted,
+      isRunning,
+      noiseRadius,
     };
   }
 }

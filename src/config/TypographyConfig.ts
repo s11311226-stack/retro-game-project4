@@ -82,8 +82,8 @@ export const TYPOGRAPHY_SPECS: Record<TypographyPresetKey, TypographyStyleSpec> 
   },
   menuItem: {
     fontFamily: PRIMARY_CJK_FONT_FAMILY,
-    fontSizePx: 15,
-    fontSize: '15px',
+    fontSizePx: 16,
+    fontSize: '16px',
     fontStyle: 'bold',
     color: '#fef08a',
     lineSpacing: 5,
@@ -102,8 +102,8 @@ export const TYPOGRAPHY_SPECS: Record<TypographyPresetKey, TypographyStyleSpec> 
   },
   documentBody: {
     fontFamily: PRIMARY_CJK_FONT_FAMILY,
-    fontSizePx: 14,
-    fontSize: '14px',
+    fontSizePx: 16,
+    fontSize: '16px',
     color: '#fef3c7',
     lineSpacing: 6,
     resolution: 3,

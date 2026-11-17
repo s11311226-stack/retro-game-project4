@@ -26,6 +26,13 @@ export const DEFAULT_PLAYER_CONFIG: PlayerStatsConfig = {
     offsetY: 64, // 底部對齊畫布底端 128 (64 + 64 = 128)
   },
   moveSpeed: 150,
+  sprintSpeed: 240, // Shift 奔跑速度 (1.6x moveSpeed)
+  maxStamina: 100,
+  staminaDrainRate: 25, // 奔跑每秒消耗 25 點耐力 (可連續奔跑 4 秒)
+  staminaRegenRate: 20, // 慢走或待機每秒恢復 20 點耐力 (5 秒全滿)
+  exhaustionRecoveryThreshold: 25, // 耗盡後需恢復至 25 點方可再度奔跑
+  noiseRadiusWalk: 60, // 正常步行聲音偵測半徑
+  noiseRadiusRun: 150, // 衝刺奔跑聲音偵測半徑
   blockMoveSpeed: 0,
   jumpVelocity: -330,
   gravityY: 900,
@@ -51,11 +58,13 @@ export const DEFAULT_PLAYER_CONFIG: PlayerStatsConfig = {
 export const DEFAULT_KEY_BINDINGS: KeyBindingConfig = {
   moveLeft: ['KeyA', 'ArrowLeft'],
   moveRight: ['KeyD', 'ArrowRight'],
+  run: ['ShiftLeft', 'ShiftRight'],
   jump: ['KeyW', 'Space', 'ArrowUp'],
   attack: ['KeyJ', 'KeyZ'],
-  block: ['KeyK', 'KeyX', 'ShiftLeft'],
+  block: ['KeyK', 'KeyX'],
   interact: ['KeyE'],
   inventory: ['KeyI', 'Tab'],
+  map: ['KeyM'],
   pause: ['KeyP', 'Escape'],
   enableMouseCombat: true,
 };
